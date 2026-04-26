@@ -1558,7 +1558,7 @@ function parseFacturaSolicitudPayload(body = {}) {
         ['GIRO', payload.giro, 255],
         ['DIRECCION', payload.direccion, 255],
         ['COMUNA', payload.comuna, 120],
-        ['CIUDAD', payload.ciudad, 120],
+        ['REGION', payload.ciudad, 120],
         ['CONTACTO', payload.contacto, 255],
         ['CORREO DESTINO', payload.destinationEmail, 255],
         ['ESTADO', payload.estado, 20]
@@ -1604,7 +1604,7 @@ function validateRegistroPayloadLengths(payload) {
         ['FACTURA GIRO', payload.facturaGiro, 255],
         ['FACTURA DIRECCION', payload.facturaDireccion, 255],
         ['FACTURA COMUNA', payload.facturaComuna, 120],
-        ['FACTURA CIUDAD', payload.facturaCiudad, 120],
+        ['FACTURA REGION', payload.facturaCiudad, 120],
         ['FACTURA CONTACTO', payload.facturaContacto, 255]
     ];
 

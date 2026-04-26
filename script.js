@@ -6228,7 +6228,7 @@ function buildInvoiceDetailTableRows(item) {
         ['RUT', normalizeEmailTableValue(item.rut, 20)],
         ['GIRO', normalizeEmailTableValue(item.giro, 80)],
         ['DIRECCION', normalizeEmailTableValue(item.direccion, 90)],
-        ['COMUNA / CIUDAD', normalizeEmailTableValue(buildInvoiceComunaRegionLabel(item.comuna, item.ciudad), 80)],
+        ['COMUNA / REGION', normalizeEmailTableValue(buildInvoiceComunaRegionLabel(item.comuna, item.ciudad), 80)],
         ['CONTACTO', normalizeEmailTableValue(item.contacto, 80)],
         ['MONTO A FACTURAR', normalizeEmailTableValue(formatInvoiceAmount(item.montoFacturar), 30)],
         ['OBSERVACION', normalizeEmailTableValue(item.observacion, 120)]
