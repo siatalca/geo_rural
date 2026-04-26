@@ -2860,7 +2860,7 @@ function initializeSecretariaInvoiceDetailLocationSelectors() {
         return;
     }
 
-    populateRegiones(ui.secretariaInvoiceDetailCiudad, 'Seleccione ciudad');
+    populateRegiones(ui.secretariaInvoiceDetailCiudad, 'Seleccione region');
     populateComunas(ui.secretariaInvoiceDetailComuna, '');
     ui.secretariaInvoiceDetailCiudad.addEventListener('change', () => {
         populateComunas(ui.secretariaInvoiceDetailComuna, ui.secretariaInvoiceDetailCiudad.value);
@@ -3042,7 +3042,7 @@ function applySecretariaInvoiceDetailForm(item) {
     const selectedRegion = normalizeInvoiceText(item.ciudad, 120);
     const selectedComuna = normalizeInvoiceText(item.comuna, 120);
     if (ui.secretariaInvoiceDetailCiudad) {
-        populateRegiones(ui.secretariaInvoiceDetailCiudad, 'Seleccione ciudad');
+        populateRegiones(ui.secretariaInvoiceDetailCiudad, 'Seleccione region');
         setSelectValueWithFallback(ui.secretariaInvoiceDetailCiudad, selectedRegion);
     }
     if (ui.secretariaInvoiceDetailComuna) {
