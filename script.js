@@ -1467,6 +1467,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         requestAnimationFrame(async () => {
+            resetRolDuplicateDecisionState();
             populateComunas(ui.comuna, '');
             clearRegistroFieldErrors();
             if (canUseHistoricalIngresoMode(currentUser) && adminIngresoMode === 'historical') {
@@ -9642,6 +9643,16 @@ async function handleGuardar() {
     clearRegistroFieldErrors();
 
     try {
+        const canContinueWithNewRecord = await ensureRolDuplicateDecisionBeforeCreate(data.rol);
+        if (!canContinueWithNewRecord) {
+            return;
+        }
+    } catch (error) {
+        setFormMessage(ui.formMessage, error.message, 'error');
+        return;
+    }
+
+    try {
         const result = await apiRequest('/registros', {
             method: 'POST',
             body: JSON.stringify(data)
@@ -9849,6 +9860,7 @@ async function resetRegistroFormAfterSubmit() {
     ui.registroForm.reset();
     suppressResetHandler = false;
 
+    resetRolDuplicateDecisionState();
     populateComunas(ui.comuna, '');
     renderHistory([]);
     loadedIngresoOriginal = '';
