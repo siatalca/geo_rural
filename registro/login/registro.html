@@ -1189,7 +1189,7 @@
     <div id="searchMatchModalOverlay" class="modal-overlay hidden">
         <div class="modal-card search-match-modal-card" role="dialog" aria-modal="true" aria-labelledby="searchMatchModalTitle">
             <h3 id="searchMatchModalTitle">SELECCIONA EL REGISTRO CORRECTO</h3>
-            <p class="helper-text">Se encontraron varios resultados. Elige el registro por ROL y nombre.</p>
+            <p id="searchMatchModalHelpText" class="helper-text">Se encontraron varios resultados. Elige el registro por ROL y nombre.</p>
             <div class="history-wrapper search-match-table-wrapper">
                 <table class="history-table">
                     <thead>
@@ -1198,11 +1198,14 @@
                             <th>NRO INGRESO</th>
                             <th>ROL</th>
                             <th>NOMBRE / RAZON SOCIAL</th>
+                            <th>RUT</th>
+                            <th>REGION</th>
+                            <th>COMUNA</th>
                         </tr>
                     </thead>
                     <tbody id="searchMatchResultsBody">
                         <tr>
-                            <td colspan="4">Sin coincidencias para mostrar.</td>
+                            <td colspan="7">Sin coincidencias para mostrar.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1215,6 +1218,7 @@
                     <button type="button" id="searchMatchNextBtn" class="search-match-icon-btn" aria-label="Pagina siguiente" title="Pagina siguiente">&gt;</button>
                     <button type="button" id="searchMatchLastBtn" class="search-match-icon-btn" aria-label="Ir al final" title="Ir al final">&gt;|</button>
                 </div>
+                <p id="searchMatchClientInfo" class="helper-text search-match-client-info hidden"></p>
                 <p id="searchMatchMessage" class="form-message" role="status" aria-live="polite"></p>
                 <div class="invoice-modal-actions search-match-actions">
                     <button type="button" id="searchMatchAcceptBtn" class="guardar">CARGAR REGISTRO</button>

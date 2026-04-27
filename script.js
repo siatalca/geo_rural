@@ -437,6 +437,12 @@ let dateRangeResizeTimerId = 0;
 let searchMatchCandidates = [];
 let selectedSearchMatchIngreso = '';
 let searchMatchCurrentPage = 1;
+let searchMatchModalContext = 'search';
+let searchMatchModalRoleLabel = '';
+let rolDuplicateApprovedAsNewLookupKey = '';
+let pendingRolDuplicateDecisionPromise = null;
+let pendingRolDuplicateDecisionResolve = null;
+let pendingRolDuplicateLookupKey = '';
 let dateRangeAvailableBranches = [];
 let pendingMonthlyUtmStatus = null;
 let secretariaQuotationSummary = null;
@@ -461,6 +467,8 @@ const DATE_RANGE_MIN_PAGE_SIZE = 6;
 const DATE_RANGE_FALLBACK_PAGE_SIZE = 10;
 const DATE_RANGE_MAX_PAGE_SIZE = 40;
 const SEARCH_MATCH_PAGE_SIZE = 12;
+const SEARCH_MATCH_CONTEXT_SEARCH = 'search';
+const SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE = 'rol-duplicate';
 const FACTURA_NUMBER_MAX_LENGTH = 80;
 const FACTURA_REQUIRED_FIELD_IDS = ['facturaNombreRazon', 'facturaRut', 'facturaGiro', 'facturaDireccion', 'facturaObservacion', 'facturaMonto'];
 const FACTURA_INLINE_ERROR_FIELD_IDS = [...FACTURA_REQUIRED_FIELD_IDS, 'facturaComuna', 'facturaCiudad', 'facturaContacto', 'facturaNumero'];
@@ -757,7 +765,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         dateRangeNextBtn: document.getElementById('dateRangeNextBtn'),
         dateRangeLastBtn: document.getElementById('dateRangeLastBtn'),
         searchMatchModalOverlay: document.getElementById('searchMatchModalOverlay'),
+        searchMatchModalTitle: document.getElementById('searchMatchModalTitle'),
+        searchMatchModalHelpText: document.getElementById('searchMatchModalHelpText'),
         searchMatchResultsBody: document.getElementById('searchMatchResultsBody'),
+        searchMatchClientInfo: document.getElementById('searchMatchClientInfo'),
         searchMatchMessage: document.getElementById('searchMatchMessage'),
         searchMatchFirstBtn: document.getElementById('searchMatchFirstBtn'),
         searchMatchPrevBtn: document.getElementById('searchMatchPrevBtn'),
@@ -830,6 +841,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setFormMessage(ui.operatorDocAlertsMessage, '', '');
     setFormMessage(ui.dateRangeMessage, '', '');
     setFormMessage(ui.searchMatchMessage, '', '');
+    applySearchMatchModalContext(SEARCH_MATCH_CONTEXT_SEARCH);
     initializeDocumentOptions();
     initializeOperatorBillingFeatures();
     registerRegistroRequiredFieldValidationListeners();
@@ -1219,12 +1231,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     if (ui.searchMatchCancelBtn) {
-        ui.searchMatchCancelBtn.addEventListener('click', closeSearchMatchModal);
+        ui.searchMatchCancelBtn.addEventListener('click', handleSearchMatchCancel);
     }
     if (ui.searchMatchModalOverlay) {
         ui.searchMatchModalOverlay.addEventListener('click', (event) => {
             if (event.target === ui.searchMatchModalOverlay) {
-                closeSearchMatchModal();
+                handleSearchMatchCancel();
             }
         });
     }
@@ -1397,6 +1409,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         rutInput.addEventListener('blur', () => {
             applyRutInputFormatting(rutInput);
+        });
+    }
+    const rolInput = document.getElementById('rol');
+    if (rolInput) {
+        rolInput.addEventListener('input', () => {
+            syncRolDuplicateApprovalWithCurrentInput(rolInput.value);
+        });
+        rolInput.addEventListener('blur', () => {
+            void handleRolDuplicateCheckOnInputBlur(rolInput.value);
         });
     }
     const correoInput = document.getElementById('correo');
@@ -4045,12 +4066,149 @@ function renderDateRangeResults(registros) {
     });
 }
 
+function normalizeRolDuplicateLookupKey(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function resetRolDuplicateDecisionState() {
+    rolDuplicateApprovedAsNewLookupKey = '';
+    pendingRolDuplicateLookupKey = '';
+    pendingRolDuplicateDecisionPromise = null;
+    pendingRolDuplicateDecisionResolve = null;
+}
+
+function syncRolDuplicateApprovalWithCurrentInput(rolValue) {
+    const lookupKey = normalizeRolDuplicateLookupKey(rolValue);
+    if (!lookupKey || rolDuplicateApprovedAsNewLookupKey !== lookupKey) {
+        rolDuplicateApprovedAsNewLookupKey = '';
+    }
+}
+
+function resolvePendingRolDuplicateDecision(decision = 'new') {
+    if (typeof pendingRolDuplicateDecisionResolve !== 'function') {
+        return;
+    }
+
+    const resolveDecision = pendingRolDuplicateDecisionResolve;
+    const lookupKey = pendingRolDuplicateLookupKey;
+
+    pendingRolDuplicateDecisionResolve = null;
+    pendingRolDuplicateDecisionPromise = null;
+    pendingRolDuplicateLookupKey = '';
+
+    if (decision === 'new' && lookupKey) {
+        rolDuplicateApprovedAsNewLookupKey = lookupKey;
+    } else {
+        rolDuplicateApprovedAsNewLookupKey = '';
+    }
+
+    resolveDecision(decision);
+}
+
+function applySearchMatchModalContext(context = SEARCH_MATCH_CONTEXT_SEARCH, roleLabel = '') {
+    const normalizedContext =
+        context === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE ? SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE : SEARCH_MATCH_CONTEXT_SEARCH;
+    searchMatchModalContext = normalizedContext;
+    searchMatchModalRoleLabel = normalizeText(roleLabel);
+
+    if (!ui) {
+        return;
+    }
+
+    if (ui.searchMatchModalTitle) {
+        ui.searchMatchModalTitle.textContent =
+            normalizedContext === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE
+                ? 'EL ROL YA EXISTE'
+                : 'SELECCIONA EL REGISTRO CORRECTO';
+    }
+
+    if (ui.searchMatchModalHelpText) {
+        ui.searchMatchModalHelpText.textContent =
+            normalizedContext === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE
+                ? `El rol ${searchMatchModalRoleLabel || '(sin rol)'} ya existe en el sistema. Revisa la informacion del cliente y elige una opcion.`
+                : 'Se encontraron varios resultados. Elige el registro por ROL y nombre.';
+    }
+
+    if (ui.searchMatchAcceptBtn) {
+        ui.searchMatchAcceptBtn.textContent =
+            normalizedContext === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE ? 'MODIFICAR EXISTENTE' : 'CARGAR REGISTRO';
+    }
+
+    if (ui.searchMatchCancelBtn) {
+        ui.searchMatchCancelBtn.textContent =
+            normalizedContext === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE ? 'AGREGAR NUEVO' : 'CANCELAR';
+    }
+}
+
+function findSearchMatchCandidateByIngreso(numIngreso) {
+    const targetIngreso = String(numIngreso || '').trim();
+    if (!targetIngreso || !Array.isArray(searchMatchCandidates)) {
+        return null;
+    }
+
+    const found = searchMatchCandidates.find((item) => String(item?.numIngreso || '').trim() === targetIngreso);
+    return found || null;
+}
+
+function updateSearchMatchClientInfo() {
+    if (!ui || !ui.searchMatchClientInfo) {
+        return;
+    }
+
+    if (searchMatchModalContext !== SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE) {
+        ui.searchMatchClientInfo.textContent = '';
+        ui.searchMatchClientInfo.classList.add('hidden');
+        return;
+    }
+
+    const selectedCandidate =
+        findSearchMatchCandidateByIngreso(selectedSearchMatchIngreso) ||
+        (Array.isArray(searchMatchCandidates) && searchMatchCandidates.length ? searchMatchCandidates[0] : null);
+
+    if (!selectedCandidate) {
+        ui.searchMatchClientInfo.textContent = 'No hay informacion del cliente para mostrar.';
+        ui.searchMatchClientInfo.classList.remove('hidden');
+        return;
+    }
+
+    const details = [
+        `NOMBRE: ${selectedCandidate.nombre || '-'}`,
+        `RUT: ${selectedCandidate.rut || '-'}`,
+        `ROL: ${selectedCandidate.rol || '-'}`,
+        `NRO INGRESO: ${selectedCandidate.numIngreso || '-'}`,
+        `REGION: ${selectedCandidate.region || '-'}`,
+        `COMUNA: ${selectedCandidate.comuna || '-'}`
+    ];
+
+    ui.searchMatchClientInfo.textContent = details.join(' | ');
+    ui.searchMatchClientInfo.classList.remove('hidden');
+}
+
+function normalizeSearchMatchCandidate(item = {}) {
+    return {
+        numIngreso: normalizeText(item.numIngreso),
+        nombre: normalizeText(item.nombre),
+        rut: normalizeText(item.rut),
+        rol: normalizeText(item.rol),
+        region: normalizeText(item.region || item.ciudad),
+        comuna: normalizeText(item.comuna)
+    };
+}
+
 function closeSearchMatchModal(options = {}) {
     if (!ui || !ui.searchMatchModalOverlay) {
         return;
     }
 
     const preserveResults = Boolean(options.preserveResults);
+    const roleDuplicateDecision = normalizeText(options.roleDuplicateDecision).toLowerCase();
+    if (searchMatchModalContext === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE && pendingRolDuplicateDecisionPromise) {
+        resolvePendingRolDuplicateDecision(roleDuplicateDecision === 'modify' ? 'modify' : 'new');
+    }
+
     ui.searchMatchModalOverlay.classList.add('hidden');
     setFormMessage(ui.searchMatchMessage, '', '');
 
@@ -4058,8 +4216,20 @@ function closeSearchMatchModal(options = {}) {
         selectedSearchMatchIngreso = '';
         searchMatchCandidates = [];
         searchMatchCurrentPage = 1;
-        renderSearchMatchResults([]);
     }
+
+    renderSearchMatchResults(searchMatchCandidates);
+    applySearchMatchModalContext(SEARCH_MATCH_CONTEXT_SEARCH);
+}
+
+function handleSearchMatchCancel() {
+    if (searchMatchModalContext === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE) {
+        closeSearchMatchModal({ roleDuplicateDecision: 'new' });
+        setFormMessage(ui.formMessage, 'Puedes continuar con un registro nuevo usando ese rol.', 'success');
+        return;
+    }
+
+    closeSearchMatchModal();
 }
 
 function updateSearchMatchPaginationControls(totalItems) {
@@ -4115,7 +4285,8 @@ function renderSearchMatchResults(coincidencias) {
     updateSearchMatchPaginationControls(rows.length);
     ui.searchMatchResultsBody.innerHTML = '';
     if (rows.length === 0) {
-        ui.searchMatchResultsBody.innerHTML = '<tr><td colspan="4">Sin coincidencias para mostrar.</td></tr>';
+        ui.searchMatchResultsBody.innerHTML = '<tr><td colspan="7">Sin coincidencias para mostrar.</td></tr>';
+        updateSearchMatchClientInfo();
         return;
     }
 
@@ -4137,6 +4308,9 @@ function renderSearchMatchResults(coincidencias) {
             <td><label for="${radioId}">${escapeHtml(numIngreso || '-')}</label></td>
             <td>${escapeHtml(item?.rol || '')}</td>
             <td>${escapeHtml(item?.nombre || '')}</td>
+            <td>${escapeHtml(item?.rut || '')}</td>
+            <td>${escapeHtml(item?.region || '')}</td>
+            <td>${escapeHtml(item?.comuna || '')}</td>
         `;
 
         const radio = row.querySelector(`input[name="searchMatchSelection"]`);
@@ -4160,20 +4334,28 @@ function renderSearchMatchResults(coincidencias) {
 
         ui.searchMatchResultsBody.appendChild(row);
     });
+
+    updateSearchMatchClientInfo();
 }
 
-function openSearchMatchModal(coincidencias, message = '') {
+function openSearchMatchModal(coincidencias, message = '', options = {}) {
     if (!ui || !ui.searchMatchModalOverlay) {
         return false;
     }
 
+    const normalizedContext =
+        options.context === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE ? SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE : SEARCH_MATCH_CONTEXT_SEARCH;
+    const normalizedRole = normalizeText(options.roleLabel || options.roleValue || '');
     const normalizedMatches = Array.isArray(coincidencias)
-        ? coincidencias.filter((item) => String(item?.numIngreso || '').trim().length > 0)
+        ? coincidencias
+              .map((item) => normalizeSearchMatchCandidate(item))
+              .filter((item) => String(item?.numIngreso || '').trim().length > 0)
         : [];
     if (normalizedMatches.length === 0) {
         return false;
     }
 
+    applySearchMatchModalContext(normalizedContext, normalizedRole);
     searchMatchCandidates = normalizedMatches;
     searchMatchCurrentPage = 1;
     selectedSearchMatchIngreso = String(normalizedMatches[0].numIngreso || '').trim();
@@ -4185,6 +4367,104 @@ function openSearchMatchModal(coincidencias, message = '') {
     );
     ui.searchMatchModalOverlay.classList.remove('hidden');
     return true;
+}
+
+async function findRegistrosByRolForDuplicateCheck(rolValue) {
+    const rol = normalizeText(rolValue);
+    if (!rol) {
+        return [];
+    }
+
+    try {
+        const payload = await apiRequest(`/registros/buscar?rol=${encodeURIComponent(rol)}`);
+        if (Array.isArray(payload?.coincidencias) && payload.coincidencias.length > 0) {
+            return payload.coincidencias.map((item) => normalizeSearchMatchCandidate(item));
+        }
+
+        if (payload && typeof payload === 'object' && normalizeText(payload.numIngreso)) {
+            return [normalizeSearchMatchCandidate(payload)];
+        }
+
+        return [];
+    } catch (error) {
+        if (Number(error?.status) === 404) {
+            return [];
+        }
+        throw error;
+    }
+}
+
+function openRoleDuplicatePrompt(rolValue, coincidencias) {
+    const rol = normalizeText(rolValue);
+    const lookupKey = normalizeRolDuplicateLookupKey(rol);
+    if (!rol || !lookupKey || !Array.isArray(coincidencias) || coincidencias.length === 0) {
+        return Promise.resolve('new');
+    }
+
+    if (pendingRolDuplicateDecisionPromise && pendingRolDuplicateLookupKey === lookupKey) {
+        return pendingRolDuplicateDecisionPromise;
+    }
+
+    const message = `El rol ${rol} ya existe. Si deseas editar ese cliente usa MODIFICAR EXISTENTE.`;
+    const wasOpened = openSearchMatchModal(coincidencias, message, {
+        context: SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE,
+        roleValue: rol
+    });
+    if (!wasOpened) {
+        return Promise.resolve('new');
+    }
+
+    pendingRolDuplicateLookupKey = lookupKey;
+    pendingRolDuplicateDecisionPromise = new Promise((resolve) => {
+        pendingRolDuplicateDecisionResolve = resolve;
+    });
+    return pendingRolDuplicateDecisionPromise;
+}
+
+async function ensureRolDuplicateDecisionBeforeCreate(rolValue) {
+    const rol = normalizeText(rolValue);
+    const lookupKey = normalizeRolDuplicateLookupKey(rol);
+    if (!rol || !lookupKey) {
+        return true;
+    }
+
+    if (!currentUser || !canCreateRegistros(currentUser) || Boolean(loadedIngresoOriginal)) {
+        return true;
+    }
+
+    if (rolDuplicateApprovedAsNewLookupKey && rolDuplicateApprovedAsNewLookupKey === lookupKey) {
+        return true;
+    }
+
+    if (pendingRolDuplicateDecisionPromise && pendingRolDuplicateLookupKey === lookupKey) {
+        const pendingDecision = await pendingRolDuplicateDecisionPromise;
+        return pendingDecision === 'new';
+    }
+
+    const coincidencias = await findRegistrosByRolForDuplicateCheck(rol);
+    if (coincidencias.length === 0) {
+        return true;
+    }
+
+    const decision = await openRoleDuplicatePrompt(rol, coincidencias);
+    return decision === 'new';
+}
+
+async function handleRolDuplicateCheckOnInputBlur(rolValue) {
+    const rol = normalizeText(rolValue);
+    if (!rol) {
+        return;
+    }
+
+    if (!currentUser || !canCreateRegistros(currentUser) || Boolean(loadedIngresoOriginal)) {
+        return;
+    }
+
+    try {
+        await ensureRolDuplicateDecisionBeforeCreate(rol);
+    } catch (error) {
+        setFormMessage(ui.formMessage, error.message, 'error');
+    }
 }
 
 async function handleSearchMatchAcceptSelection() {
@@ -4200,6 +4480,12 @@ async function handleSearchMatchAcceptSelection() {
 
     try {
         await loadRegistroByIngreso(selectedSearchMatchIngreso, 'seleccion de coincidencias');
+        if (searchMatchModalContext === SEARCH_MATCH_CONTEXT_ROLE_DUPLICATE) {
+            closeSearchMatchModal({ roleDuplicateDecision: 'modify' });
+            setFormMessage(ui.formMessage, 'Registro existente cargado. Si hiciste cambios usa MODIFICAR para guardarlos.', 'success');
+            return;
+        }
+
         closeSearchMatchModal();
     } catch (error) {
         setFormMessage(ui.searchMatchMessage, error.message, 'error');
