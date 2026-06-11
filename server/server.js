@@ -143,6 +143,29 @@ const MAIL_TEMPLATE_MAX_LENGTH = parsePositiveInt(process.env.MAIL_TEMPLATE_MAX_
 const MAIL_TEMPLATE_KEYS = Object.freeze(['cotizacionHtml', 'facturaSingleHtml', 'facturaPendingHtml']);
 const SMTP_CONFIG_SINGLETON_ID = 1;
 const SYSTEM_CONFIG_SINGLETON_ID = 1;
+const DEFAULT_FOLDER_STATUS_GROUPS = Object.freeze([
+    { id: 'grupo_1', label: 'Recepcion' },
+    { id: 'grupo_2', label: 'Evaluacion' },
+    { id: 'grupo_3', label: 'Resolucion' },
+    { id: 'grupo_4', label: 'Certificado' },
+    { id: 'grupo_5', label: 'Cierre' }
+]);
+const DEFAULT_FOLDER_STATUS_OPTIONS = Object.freeze([
+    { value: 'pendiente', label: 'Pendiente', groupId: 'grupo_1' },
+    { value: 'recibido', label: 'Recibido', groupId: 'grupo_1' },
+    { value: 'derivada_a_evaluacion', label: 'Derivada a Evaluacion', groupId: 'grupo_2' },
+    { value: 'en_proceso_de_evaluacion', label: 'En proceso de Evaluacion', groupId: 'grupo_2' },
+    { value: 'en_proceso_de_resolver', label: 'En proceso de resolver', groupId: 'grupo_3' },
+    { value: 'pendiente_de_resolucion', label: 'Pendiente de Resolucion', groupId: 'grupo_3' },
+    { value: 'en_creacion_de_certificado', label: 'En creacion de Certificado', groupId: 'grupo_4' },
+    { value: 'certificada', label: 'Certificada', groupId: 'grupo_4' },
+    { value: 'rechazada', label: 'Rechazada', groupId: 'grupo_5' },
+    { value: 'no_admisible', label: 'No Admisible', groupId: 'grupo_5' },
+    { value: 'con_resolucion_de_abandono', label: 'Con resolucion de Abandono', groupId: 'grupo_5' },
+    { value: 'con_resolucion_de_desistimiento', label: 'Con resolucion de Desistimiento', groupId: 'grupo_5' },
+    { value: 'con_observaciones', label: 'Con observaciones', groupId: 'grupo_5' },
+    { value: 'con_plazo_ampliado', label: 'Con plazo ampliado', groupId: 'grupo_5' }
+]);
 const LOGIN_ROUTE_NOTICE_DURATION_DAYS = parsePositiveInt(process.env.LOGIN_ROUTE_NOTICE_DURATION_DAYS, 15);
 const LOGIN_ROUTE_NOTICE_MAX_URL_LENGTH = parsePositiveInt(process.env.LOGIN_ROUTE_NOTICE_MAX_URL_LENGTH, 255);
 const LOGIN_ROUTE_NOTICE_DEV_URL = normalizeText(
@@ -1051,6 +1074,112 @@ function normalizeEstado(value) {
     return estado;
 }
 
+function normalizeFolderStatusValue(value) {
+    return String(value || '')
+        .trim()
+        .toLocaleLowerCase('es-CL')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9_]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 80);
+}
+
+function formatFolderStatusValue(value) {
+    const normalized = normalizeFolderStatusValue(value);
+    return normalized ? normalized.replace(/_/g, ' ') : 'sin estado';
+}
+
+function normalizeFolderStatusGroupId(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 40);
+}
+
+function normalizeFolderStatusLabel(value) {
+    return String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
+}
+
+function parseJsonArrayValue(value) {
+    if (Array.isArray(value)) {
+        return value;
+    }
+    if (!value) {
+        return [];
+    }
+    try {
+        const parsed = JSON.parse(String(value));
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function sanitizeFolderStatusGroups(groups = []) {
+    const fallbackMap = new Map(DEFAULT_FOLDER_STATUS_GROUPS.map((item) => [item.id, item.label]));
+    const sourceMap = new Map();
+    parseJsonArrayValue(groups).forEach((item) => {
+        const id = normalizeFolderStatusGroupId(item?.id);
+        const label = normalizeFolderStatusLabel(item?.label);
+        if (id && label) {
+            sourceMap.set(id, label);
+        }
+    });
+
+    return DEFAULT_FOLDER_STATUS_GROUPS.map((fallback, index) => ({
+        id: fallback.id,
+        label: sourceMap.get(fallback.id) || fallbackMap.get(fallback.id) || `Categoria ${index + 1}`
+    }));
+}
+
+function sanitizeFolderStatusOptions(options = [], groups = DEFAULT_FOLDER_STATUS_GROUPS) {
+    const safeGroups = sanitizeFolderStatusGroups(groups);
+    const validGroupIds = new Set(safeGroups.map((item) => item.id));
+    const fallbackGroupByValue = new Map(
+        DEFAULT_FOLDER_STATUS_OPTIONS.map((item) => [normalizeFolderStatusValue(item.value), normalizeFolderStatusGroupId(item.groupId)])
+    );
+    const sanitized = [];
+    const seen = new Set();
+    let autoGroupIndex = 0;
+
+    parseJsonArrayValue(options).forEach((item) => {
+        const value = normalizeFolderStatusValue(item?.value);
+        const label = normalizeFolderStatusLabel(item?.label);
+        if (!value || !label || seen.has(value)) {
+            return;
+        }
+
+        let groupId = normalizeFolderStatusGroupId(item?.groupId);
+        if (!validGroupIds.has(groupId)) {
+            groupId = fallbackGroupByValue.get(value) || safeGroups[autoGroupIndex % safeGroups.length]?.id || 'grupo_1';
+            autoGroupIndex += 1;
+        }
+
+        seen.add(value);
+        sanitized.push({ value, label, groupId });
+    });
+
+    if (sanitized.length === 0) {
+        return DEFAULT_FOLDER_STATUS_OPTIONS.map((item) => ({ ...item }));
+    }
+
+    return sanitized.slice(0, 100);
+}
+
+function buildFolderStatusCatalogPayload(groupsValue, optionsValue) {
+    const groups = sanitizeFolderStatusGroups(groupsValue);
+    const options = sanitizeFolderStatusOptions(optionsValue, groups);
+    return { groups, options };
+}
+
 function normalizeFacturaSolicitudEstado(value) {
     const estado = String(value || '').trim().toUpperCase();
     if (estado === FACTURA_SOLICITUD_ESTADO_PENDIENTE) {
@@ -1598,6 +1727,7 @@ function validateRegistroPayloadLengths(payload) {
         ['NOMBRE PREDIO', payload.nombrePredio, 255],
         ['ROL', payload.rol, 120],
         ['ESTADO', payload.estado, 40],
+        ['ESTADO CARPETA', payload.estadoCarpeta, 80],
         ['FACTURA NOMBRE / RAZON SOCIAL', payload.facturaNombreRazon, 255],
         ['FACTURA NUMERO', payload.facturaNumero, 80],
         ['FACTURA RUT', payload.facturaRut, 20],
@@ -1843,7 +1973,7 @@ function canUseInvoiceWorkflow(user) {
 }
 
 function canUseOperatorDocumentAlerts(user) {
-    return isOperatorUser(user) || isSuperUser(user);
+    return isOperatorUser(user) && !isGuestUser(user);
 }
 
 function canReceiveWriteApiKey(user) {
@@ -2077,6 +2207,16 @@ function buildAutomaticModificationComment(existingRow, payload, docsAdded = [],
         });
     }
 
+    const beforeEstadoCarpeta = normalizeFolderStatusValue(existingRow.estado_carpeta);
+    const afterEstadoCarpeta = normalizeFolderStatusValue(payload.estadoCarpeta);
+    if (beforeEstadoCarpeta !== afterEstadoCarpeta) {
+        changes.push({
+            group: 'registro',
+            label: 'estado de carpeta',
+            detail: `modificacion de estado de carpeta: ${formatFolderStatusValue(beforeEstadoCarpeta)} -> ${formatFolderStatusValue(afterEstadoCarpeta)}`
+        });
+    }
+
     const beforeFacturaMonto =
         existingRow.factura_monto === null || typeof existingRow.factura_monto === 'undefined'
             ? null
@@ -2168,6 +2308,7 @@ function toApiRow(row) {
         rol: row.rol,
         numLotes: row.num_lotes ?? '',
         estado: normalizeEstado(row.estado),
+        estadoCarpeta: normalizeFolderStatusValue(row.estado_carpeta),
         comentario: row.comentario || '',
         documentos: parseStoredDocumentList(row.documentos),
         factura: {
@@ -4189,6 +4330,14 @@ async function ensureRegistrosFacturaColumns() {
     await ensureColumn('registros', 'factura_monto', '`factura_monto` DECIMAL(14,2) NULL AFTER factura_observacion');
 }
 
+async function ensureRegistrosFolderStatusColumns() {
+    await ensureColumn('registros', 'estado_carpeta', '`estado_carpeta` VARCHAR(80) NULL AFTER estado');
+    const [indexes] = await pool.query("SHOW INDEX FROM registros WHERE Key_name = 'idx_estado_carpeta'");
+    if (indexes.length === 0) {
+        await pool.query('ALTER TABLE registros ADD INDEX idx_estado_carpeta (estado_carpeta)');
+    }
+}
+
 async function ensureHistoryEditColumns() {
     await ensureColumn('registro_historial', 'editado', '`editado` TINYINT(1) NOT NULL DEFAULT 0 AFTER sucursal');
     await ensureColumn('registro_historial', 'editado_por', '`editado_por` VARCHAR(120) NULL AFTER editado');
@@ -4848,6 +4997,8 @@ async function createSystemConfigTable() {
             login_notice_updated_by_id INT UNSIGNED NULL,
             login_notice_updated_by_name VARCHAR(120) NULL,
             login_notice_updated_at DATETIME NULL,
+            folder_status_groups JSON NULL,
+            folder_status_options JSON NULL,
             updated_by_id INT UNSIGNED NULL,
             updated_by_name VARCHAR(120) NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -4894,6 +5045,16 @@ async function ensureSystemConfigColumns() {
         'login_notice_updated_at',
         '`login_notice_updated_at` DATETIME NULL AFTER login_notice_updated_by_name'
     );
+    await ensureColumn(
+        'sistema_configuracion',
+        'folder_status_groups',
+        '`folder_status_groups` JSON NULL AFTER login_notice_updated_at'
+    );
+    await ensureColumn(
+        'sistema_configuracion',
+        'folder_status_options',
+        '`folder_status_options` JSON NULL AFTER folder_status_groups'
+    );
 }
 
 async function ensureSystemConfigRow() {
@@ -4916,6 +5077,17 @@ async function ensureSystemConfigRow() {
                 )
         `,
         [SYSTEM_CONFIG_SINGLETON_ID, defaultUrl, defaultMessage]
+    );
+
+    const defaultCatalog = buildFolderStatusCatalogPayload(DEFAULT_FOLDER_STATUS_GROUPS, DEFAULT_FOLDER_STATUS_OPTIONS);
+    await pool.execute(
+        `
+            UPDATE sistema_configuracion
+            SET folder_status_groups = IF(folder_status_groups IS NULL, ?, folder_status_groups),
+                folder_status_options = IF(folder_status_options IS NULL, ?, folder_status_options)
+            WHERE id = ?
+        `,
+        [JSON.stringify(defaultCatalog.groups), JSON.stringify(defaultCatalog.options), SYSTEM_CONFIG_SINGLETON_ID]
     );
 
     if (IS_PRODUCTION_ENV) {
@@ -5107,6 +5279,52 @@ async function updateLoginRouteNoticeUrl(actorUser = null, requestedUrl = '') {
     return getLoginRouteNoticeAdminPayload();
 }
 
+async function fetchFolderStatusCatalog() {
+    const [rows] = await pool.execute(
+        `
+            SELECT folder_status_groups, folder_status_options
+            FROM sistema_configuracion
+            WHERE id = ?
+            LIMIT 1
+        `,
+        [SYSTEM_CONFIG_SINGLETON_ID]
+    );
+
+    if (!rows.length) {
+        return buildFolderStatusCatalogPayload(DEFAULT_FOLDER_STATUS_GROUPS, DEFAULT_FOLDER_STATUS_OPTIONS);
+    }
+
+    return buildFolderStatusCatalogPayload(rows[0].folder_status_groups, rows[0].folder_status_options);
+}
+
+async function saveFolderStatusCatalog(payload = {}, actorUser = null) {
+    const catalog = buildFolderStatusCatalogPayload(payload.groups, payload.options);
+    const actorIdValue = Number(actorUser?.id);
+    const updatedById = Number.isInteger(actorIdValue) && actorIdValue > 0 ? actorIdValue : null;
+    const updatedByName = normalizeText(actorUser?.nombre || actorUser?.username || '') || null;
+
+    await pool.execute(
+        `
+            UPDATE sistema_configuracion
+            SET folder_status_groups = ?,
+                folder_status_options = ?,
+                updated_by_id = ?,
+                updated_by_name = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `,
+        [
+            JSON.stringify(catalog.groups),
+            JSON.stringify(catalog.options),
+            updatedById,
+            updatedByName,
+            SYSTEM_CONFIG_SINGLETON_ID
+        ]
+    );
+
+    return catalog;
+}
+
 async function initDatabase() {
     const sanitizedDbName = cleanDbIdentifier(DB_NAME) || 'geo_rural';
     const bootstrapConnection = await mysql.createConnection({
@@ -5163,6 +5381,7 @@ async function initDatabase() {
             rol VARCHAR(120) NOT NULL,
             num_lotes INT NULL,
             estado VARCHAR(40) NULL,
+            estado_carpeta VARCHAR(80) NULL,
             comentario TEXT NULL,
             factura_nombre_razon VARCHAR(255) NULL,
             factura_numero VARCHAR(80) NULL,
@@ -5186,7 +5405,8 @@ async function initDatabase() {
             UNIQUE KEY uq_anio_correlativo (anio, correlativo),
             KEY idx_nombre (nombre),
             KEY idx_rut (rut),
-            KEY idx_rol (rol)
+            KEY idx_rol (rol),
+            KEY idx_estado_carpeta (estado_carpeta)
         )
     `);
 
@@ -5194,6 +5414,7 @@ async function initDatabase() {
         await ensureUniqueCorrelativoIndex();
         await ensureRegistrosAuditColumns();
         await ensureRegistrosFacturaColumns();
+        await ensureRegistrosFolderStatusColumns();
         await createAuthTables();
         await cleanupExpiredSessionsIfNeeded(true);
         await ensureUsersRoleColumn();
@@ -5524,6 +5745,29 @@ app.get('/api/public/system-status', async (req, res) => {
 
 app.use('/api', requireAuth);
 app.use('/api', requirePasswordChangeCompleted);
+
+app.get('/api/carpeta-estados/catalogo', async (req, res) => {
+    try {
+        const catalog = await fetchFolderStatusCatalog();
+        return res.json(catalog);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible cargar estados de carpeta.' });
+    }
+});
+
+app.put('/api/admin/carpeta-estados/catalogo', requireSuper, async (req, res) => {
+    try {
+        const catalog = await saveFolderStatusCatalog(req.body || {}, req.authUser);
+        return res.json({
+            message: 'Estados de carpeta actualizados correctamente.',
+            ...catalog
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible guardar estados de carpeta.' });
+    }
+});
 
 app.get('/api/system/mantenimiento', requireSuper, async (req, res) => {
     try {
@@ -7368,6 +7612,7 @@ app.post('/api/registros', requireWriteAccess, async (req, res) => {
         rol: normalizeText(req.body.rol),
         numLotesRaw: req.body.numLotes,
         estado: normalizeEstado(req.body.estado),
+        estadoCarpeta: normalizeFolderStatusValue(req.body.estadoCarpeta),
         comentario: incomingComment || DEFAULT_CREATION_COMMENT,
         documentos: safeJsonArray(req.body.documentos),
         facturaNombreRazon: normalizeText(rawFactura.nombreRazonSocial),
@@ -7425,9 +7670,10 @@ app.post('/api/registros', requireWriteAccess, async (req, res) => {
     }
     if (authRole === ROLE_OPERADOR) {
         return res.status(403).json({
-            message: 'Tu rol no puede crear registros. Solo puedes agregar comentarios y actualizar documentacion recibida.'
+            message: 'Tu rol no puede crear registros. Solo puedes agregar comentarios y actualizar estado de carpeta.'
         });
     }
+    payload.estadoCarpeta = '';
 
     const canEditFacturaNumero = isSecretaryUser(req.authUser) && !isGuestUser(req.authUser);
     if (!canEditFacturaNumero || payload.estado !== 'facturada') {
@@ -7460,14 +7706,14 @@ app.post('/api/registros', requireWriteAccess, async (req, res) => {
                     num_ingreso, correlativo, anio,
                     nombre, rut, telefono, correo,
                     region, comuna, nombre_predio,
-                    rol, num_lotes, estado, comentario,
+                    rol, num_lotes, estado, estado_carpeta, comentario,
                     factura_nombre_razon, factura_numero, factura_rut, factura_giro,
                     factura_direccion, factura_comuna, factura_ciudad,
                     factura_contacto, factura_observacion, factura_monto,
                     created_by, created_by_sucursal,
                     updated_by, updated_by_sucursal,
                     documentos
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
             [
                 reservedIngreso.numIngreso,
@@ -7483,6 +7729,7 @@ app.post('/api/registros', requireWriteAccess, async (req, res) => {
                 payload.rol,
                 parsedLotes.value,
                 payload.estado || null,
+                payload.estadoCarpeta || null,
                 payload.comentario || null,
                 payload.facturaNombreRazon || null,
                 payload.facturaNumero || null,
@@ -7555,6 +7802,7 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
         rol: normalizeText(req.body.rol),
         numLotesRaw: req.body.numLotes,
         estado: normalizeEstado(req.body.estado),
+        estadoCarpeta: normalizeFolderStatusValue(req.body.estadoCarpeta),
         comentario: normalizeText(req.body.comentario),
         documentos: safeJsonArray(req.body.documentos),
         facturaNombreRazon: normalizeText(rawFactura.nombreRazonSocial),
@@ -7580,7 +7828,7 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
     }
     const isOperatorLimitedEditor = authRole === ROLE_OPERADOR && !isGuestUser(req.authUser);
     if (isOperatorLimitedEditor) {
-        // En OPERADOR, MODIFICAR solo aplica cambios de documentacion.
+        // En OPERADOR, MODIFICAR solo aplica cambios de estado de carpeta.
         payload.numIngresoNuevo = routeIngreso;
     }
 
@@ -7662,6 +7910,7 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
                     rol,
                     num_lotes,
                     estado,
+                    estado_carpeta,
                     comentario,
                     factura_nombre_razon,
                     factura_numero,
@@ -7697,6 +7946,7 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
             payload.nombrePredio = normalizeText(existingRows[0].nombre_predio);
             payload.rol = normalizeText(existingRows[0].rol);
             payload.estado = normalizeEstado(existingRows[0].estado);
+            payload.estadoCarpeta = normalizeFolderStatusValue(req.body.estadoCarpeta);
             payload.facturaNombreRazon = normalizeText(existingRows[0].factura_nombre_razon);
             payload.facturaNumero = normalizeText(existingRows[0].factura_numero);
             payload.facturaRut = normalizeText(existingRows[0].factura_rut);
@@ -7708,6 +7958,9 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
             payload.facturaObservacion = normalizeText(existingRows[0].factura_observacion);
             payload.facturaMonto = existingRows[0].factura_monto === null ? null : Number(existingRows[0].factura_monto);
             parsedLotes.value = existingRows[0].num_lotes === null ? null : Number(existingRows[0].num_lotes);
+            payload.documentos = parseStoredDocumentList(existingRows[0].documentos);
+        } else {
+            payload.estadoCarpeta = normalizeFolderStatusValue(existingRows[0].estado_carpeta);
         }
 
         if (!hasFacturaPayload) {
@@ -7766,6 +8019,7 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
                     rol = ?,
                     num_lotes = ?,
                     estado = ?,
+                    estado_carpeta = ?,
                     comentario = ?,
                     factura_nombre_razon = ?,
                     factura_numero = ?,
@@ -7796,6 +8050,7 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
                 payload.rol,
                 parsedLotes.value,
                 payload.estado || null,
+                payload.estadoCarpeta || null,
                 payload.comentario || null,
                 payload.facturaNombreRazon || null,
                 payload.facturaNumero || null,
@@ -8337,10 +8592,78 @@ app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
     }
 });
 
+app.get('/api/registros/carpeta-estados', async (req, res) => {
+    try {
+        if (!isOperatorUser(req.authUser) || isGuestUser(req.authUser)) {
+            return res.status(403).json({ message: 'Solo OPERADOR puede buscar carpetas por estado.' });
+        }
+
+        const rawEstadoParams = Array.isArray(req.query.estadoCarpeta)
+            ? req.query.estadoCarpeta
+            : typeof req.query.estadoCarpeta === 'string'
+              ? req.query.estadoCarpeta.split(',')
+              : typeof req.query.estados === 'string'
+                ? req.query.estados.split(',')
+                : [];
+        const estados = [...new Set(rawEstadoParams.map((item) => normalizeFolderStatusValue(item)).filter(Boolean))];
+
+        if (estados.length > 25) {
+            return res.status(400).json({ message: 'Selecciona hasta 25 filtros de estado.' });
+        }
+
+        const where = ["estado_carpeta IS NOT NULL", "TRIM(estado_carpeta) <> ''"];
+        const values = [];
+        if (estados.length > 0) {
+            where.push(`estado_carpeta IN (${estados.map(() => '?').join(', ')})`);
+            values.push(...estados);
+        }
+
+        const [rows] = await pool.execute(
+            `
+                SELECT
+                    id,
+                    num_ingreso,
+                    nombre,
+                    rut,
+                    region,
+                    comuna,
+                    estado_carpeta,
+                    created_by_sucursal,
+                    updated_by_sucursal,
+                    created_at,
+                    updated_at
+                FROM registros
+                WHERE ${where.join(' AND ')}
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 500
+            `,
+            values
+        );
+
+        const registros = rows.map((row) => ({
+            id: Number(row.id || 0),
+            numIngreso: row.num_ingreso || '',
+            nombre: row.nombre || '',
+            rut: row.rut || '',
+            region: row.region || '',
+            comuna: row.comuna || '',
+            sucursal: normalizeText(row.updated_by_sucursal || row.created_by_sucursal),
+            estadoCarpeta: normalizeFolderStatusValue(row.estado_carpeta),
+            createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
+            updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at || row.created_at || '')
+        }));
+
+        return res.json({ registros });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible buscar carpetas por estado.' });
+    }
+});
+
 app.get('/api/registros/documentos-alertas', async (req, res) => {
     try {
         if (!canUseOperatorDocumentAlerts(req.authUser)) {
-            return res.status(403).json({ message: 'Solo OPERADOR o SUPER pueden consultar esta lista.' });
+            return res.status(403).json({ message: 'Solo OPERADOR puede consultar esta lista.' });
         }
 
         const alertScope = getOperatorDocumentAlertsScope(req.authUser, 'a');
@@ -8395,7 +8718,7 @@ app.post('/api/registros/documentos-alertas/:alertId/revisar', requireWriteAcces
     }
 
     if (!canUseOperatorDocumentAlerts(req.authUser)) {
-        return res.status(403).json({ message: 'Solo OPERADOR o SUPER pueden revisar esta lista.' });
+        return res.status(403).json({ message: 'Solo OPERADOR puede revisar esta lista.' });
     }
 
     const alertScope = getOperatorDocumentAlertsScope(req.authUser);
@@ -8590,7 +8913,7 @@ app.get('/api/registros/buscar', async (req, res) => {
                 id,
                 num_ingreso, nombre, rut, telefono, correo,
                 region, comuna, nombre_predio, rol,
-                num_lotes, estado, comentario,
+                num_lotes, estado, estado_carpeta, comentario,
                 factura_nombre_razon, factura_numero, factura_rut, factura_giro,
                 factura_direccion, factura_comuna, factura_ciudad,
                 factura_contacto, factura_observacion, factura_monto,

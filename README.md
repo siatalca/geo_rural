@@ -28,7 +28,7 @@
 6. Verificacion rapida de sintaxis:
    - `npm run check`
 
-El servidor corre por defecto en `http://127.0.0.1:3000`.
+El servidor corre por defecto en `http://127.0.0.1:3001`.
 
 ## Usuario MySQL recomendado (evitar root)
 Si aparece `Access denied for user 'root'@'localhost' (using password: NO)`, crea un usuario dedicado para la app:
@@ -133,4 +133,4 @@ Si en el navegador quedo guardado un API base incorrecto, limpialo con:
 - El envio de facturas al contador usa SMTP del sistema (igual que cotizaciones), ya no depende de `mailto`.
 - Si una busqueda devuelve multiples coincidencias, el frontend solicita seleccionar `NRO INGRESO` exacto.
 - La sesion se valida por cookie `HttpOnly` y ya no depende de token persistente en `localStorage`.
-- Si el frontend corre en otro puerto/local host (ej: XAMPP en `localhost` o IP LAN), usa automaticamente `http://<host-actual>:3000/api`.
+- Si el frontend corre en otro puerto/local host (ej: XAMPP en `localhost` o IP LAN), usa automaticamente `http://<host-actual>:3001/api`.

@@ -61,7 +61,7 @@
   function getConfig() {
     const config = window.SIA_CHATBOT_CONFIG || {};
     return {
-      enabled: config.enabled ?? true,
+      enabled: config.enabled === true,
       webhookUrl: String(config.webhookUrl || "").trim(),
       metadata: resolveMetadata(config.metadata),
       defaultLanguage: config.defaultLanguage || "en",
@@ -140,7 +140,8 @@
   }
 
   function setChatbotSessionActive(isActive) {
-    const active = Boolean(isActive);
+    const config = getConfig();
+    const active = Boolean(isActive && config.enabled && config.webhookUrl);
     const mountNode = ensureMountNode();
 
     mountNode.style.display = active ? "" : "none";

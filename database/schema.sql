@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS registros (
     rol VARCHAR(120) NOT NULL,
     num_lotes INT NULL,
     estado VARCHAR(40) NULL,
+    estado_carpeta VARCHAR(80) NULL,
     comentario TEXT NULL,
     created_by VARCHAR(120) NULL,
     created_by_sucursal VARCHAR(120) NULL,
@@ -29,7 +30,8 @@ CREATE TABLE IF NOT EXISTS registros (
     UNIQUE KEY uq_anio_correlativo (anio, correlativo),
     KEY idx_nombre (nombre),
     KEY idx_rut (rut),
-    KEY idx_rol (rol)
+    KEY idx_rol (rol),
+    KEY idx_estado_carpeta (estado_carpeta)
 );
 
 CREATE TABLE IF NOT EXISTS usuarios (

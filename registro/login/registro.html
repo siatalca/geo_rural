@@ -20,7 +20,7 @@
             <div class="admin-menu-row">
                 <button type="button" id="adminToggleUsersBtn" class="admin-menu-btn">GESTIONAR USUARIOS</button>
                 <button type="button" id="adminToggleBranchesBtn" class="admin-menu-btn">GESTIONAR SUCURSALES</button>
-                <button type="button" id="adminToggleDocumentsBtn" class="admin-menu-btn">GESTIONAR DOCUMENTOS</button>
+                <button type="button" id="adminToggleDocumentsBtn" class="admin-menu-btn">GESTIONAR ESTADOS</button>
                 <button type="button" id="adminToggleEmailBtn" class="admin-menu-btn hidden">CONFIGURAR CORREO</button>
                 <button type="button" id="adminToggleMailTemplatesBtn" class="admin-menu-btn hidden">PLANTILLAS CORREO</button>
                 <button type="button" id="adminToggleUsageBtn" class="admin-menu-btn hidden">EQUIPOS ACTIVOS</button>
@@ -129,47 +129,47 @@
             </section>
 
             <section id="adminDocumentsSection" class="admin-users-section hidden">
-                <h4>ADMINISTRACION DE DOCUMENTACION REQUERIDA</h4>
-                <div id="adminDocumentForm" class="admin-form" role="group" aria-label="Gestionar documentacion requerida">
+                <h4>ADMINISTRACION DE ESTADOS DE CARPETA</h4>
+                <div id="adminDocumentForm" class="admin-form" role="group" aria-label="Gestionar estados de carpeta">
                     <div class="form-row form-row-triple">
                         <div class="form-group">
-                            <label for="adminDocumentLabel">NOMBRE DEL DOCUMENTO</label>
+                            <label for="adminDocumentLabel">NOMBRE DEL ESTADO</label>
                             <input type="text" id="adminDocumentLabel" required>
                         </div>
                         <div class="form-group">
-                            <label for="adminDocumentGroup">SECCION DEL DOCUMENTO</label>
+                            <label for="adminDocumentGroup">CATEGORIA DEL ESTADO</label>
                             <select id="adminDocumentGroup"></select>
                         </div>
                         <div class="form-group admin-create-wrap">
-                            <button type="button" id="adminDocumentSaveBtn" class="admin-create-btn">AGREGAR DOCUMENTO</button>
+                            <button type="button" id="adminDocumentSaveBtn" class="admin-create-btn">AGREGAR ESTADO</button>
                             <button type="button" id="adminDocumentCancelBtn" class="admin-cancel-btn hidden">CANCELAR EDICION</button>
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>TITULOS DE SECCIONES (5)</label>
+                            <label>TITULOS DE CATEGORIAS (5)</label>
                             <div id="adminDocumentGroupTitles" class="admin-doc-groups-editor"></div>
                             <button type="button" id="adminDocumentGroupSaveBtn" class="admin-create-btn admin-doc-group-save-btn">
-                                GUARDAR TITULOS DE SECCIONES
+                                GUARDAR CATEGORIAS
                             </button>
                         </div>
                     </div>
-                    <p class="helper-text">Estos cambios son visuales y se guardan localmente en este navegador (no en base de datos).</p>
+                    <p class="helper-text">SUPER administra los textos. Solo OPERADOR ve y marca estos estados en las carpetas.</p>
                 </div>
                 <p id="adminDocumentMessage" class="form-message" role="status" aria-live="polite"></p>
                 <div class="history-wrapper">
                     <table class="history-table">
                         <thead>
                             <tr>
-                                <th>Documento</th>
+                                <th>Estado</th>
                                 <th>Identificador</th>
-                                <th>Seccion</th>
+                                <th>Categoria</th>
                                 <th>Accion</th>
                             </tr>
                         </thead>
                         <tbody id="adminDocumentsBody">
                             <tr>
-                                <td colspan="4">Sin documentos para mostrar.</td>
+                                <td colspan="4">Sin estados para mostrar.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -446,7 +446,7 @@
                 <button type="button" class="modificar">MODIFICAR</button>
                 <button type="button" class="buscar">BUSCAR</button>
                 <button type="button" id="buscarFechaBtn" class="buscar">BUSCAR POR FECHA</button>
-                <button type="button" id="operatorDocAlertsBtn" class="buscar hidden">DOCS NUEVOS</button>
+                <button type="button" id="operatorDocAlertsBtn" class="buscar hidden">BUSCAR CARPETAS</button>
                 <button type="button" class="eliminar hidden">ELIMINAR</button>
                 <button type="reset" class="limpiar">LIMPIAR</button>
             </div>
@@ -628,45 +628,50 @@
                         <p id="facturaFormMessage" class="form-message" role="status" aria-live="polite"></p>
                     </section>
 
-                    <div class="form-group">
-                        <label>DOCUMENTACION RECIBIDA</label>
+                    <div class="form-group hidden" id="folderStatusGroup">
+                        <label>ESTADO DE CARPETA SAG</label>
                         <div class="docs-groups" id="documentosContainer">
-                            <section class="docs-group" data-doc-group-id="grupo_1" data-doc-group-title="Identificacion del cliente">
-                                <h5 class="docs-group-title">Identificacion del cliente</h5>
+                            <section class="docs-group" data-doc-group-id="grupo_1" data-doc-group-title="Recepcion">
+                                <h5 class="docs-group-title">Recepcion</h5>
                                 <div class="docs-grid">
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="cedula"> Cedula representante</label>
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="rut_documento"> RUT cliente</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="pendiente"> Pendiente</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="recibido"> Recibido</label>
                                 </div>
                             </section>
-                            <section class="docs-group" data-doc-group-id="grupo_2" data-doc-group-title="Documentos de propiedad">
-                                <h5 class="docs-group-title">Documentos de propiedad</h5>
+                            <section class="docs-group" data-doc-group-id="grupo_2" data-doc-group-title="Evaluacion">
+                                <h5 class="docs-group-title">Evaluacion</h5>
                                 <div class="docs-grid">
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="dominio_vigente"> Certificado dominio vigente</label>
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="escritura"> Escritura propiedad</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="derivada_a_evaluacion"> Derivada a Evaluacion</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="en_proceso_de_evaluacion"> En proceso de Evaluacion</label>
                                 </div>
                             </section>
-                            <section class="docs-group" data-doc-group-id="grupo_3" data-doc-group-title="Antecedentes tecnicos">
-                                <h5 class="docs-group-title">Antecedentes tecnicos</h5>
+                            <section class="docs-group" data-doc-group-id="grupo_3" data-doc-group-title="Resolucion">
+                                <h5 class="docs-group-title">Resolucion</h5>
                                 <div class="docs-grid">
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="plano_predial"> Plano predial</label>
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="avaluo_fiscal"> Certificado avaluo fiscal</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="en_proceso_de_resolver"> En proceso de resolver</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="pendiente_de_resolucion"> Pendiente de Resolucion</label>
                                 </div>
                             </section>
-                            <section class="docs-group" data-doc-group-id="grupo_4" data-doc-group-title="Soportes complementarios">
-                                <h5 class="docs-group-title">Soportes complementarios</h5>
+                            <section class="docs-group" data-doc-group-id="grupo_4" data-doc-group-title="Certificado">
+                                <h5 class="docs-group-title">Certificado</h5>
                                 <div class="docs-grid">
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="poder"> Poder simple/notarial</label>
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="domicilio"> Comprobante domicilio</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="en_creacion_de_certificado"> En creacion de Certificado</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="certificada"> Certificada</label>
                                 </div>
                             </section>
-                            <section class="docs-group" data-doc-group-id="grupo_5" data-doc-group-title="Documentos adicionales">
-                                <h5 class="docs-group-title">Documentos adicionales</h5>
+                            <section class="docs-group" data-doc-group-id="grupo_5" data-doc-group-title="Cierre">
+                                <h5 class="docs-group-title">Cierre</h5>
                                 <div class="docs-grid">
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="solicitud_firmada"> Solicitud firmada</label>
-                                    <label class="doc-item"><input type="checkbox" name="documentos" value="otros_antecedentes"> Otros antecedentes</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="rechazada"> Rechazada</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="no_admisible"> No Admisible</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="con_resolucion_de_abandono"> Con resolución de Abandono</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="con_resolucion_de_desistimiento"> Con resolución de Desistimiento</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="con_observaciones"> Con observaciones</label>
+                                    <label class="doc-item"><input type="radio" name="estadoCarpeta" value="con_plazo_ampliado"> Con plazo ampliado</label>
                                 </div>
                             </section>
                         </div>
+                        <p class="helper-text">Visible solo para OPERADOR. Carga una carpeta y marca su estado actual.</p>
                     </div>
                     <div id="comentariosHistorySideAnchor"></div>
 
@@ -1080,29 +1085,34 @@
 
     <div id="operatorDocAlertsOverlay" class="modal-overlay hidden">
         <div class="modal-card operator-doc-alerts-modal-card" role="dialog" aria-modal="true" aria-labelledby="operatorDocAlertsTitle">
-            <h3 id="operatorDocAlertsTitle">DOCUMENTOS NUEVOS POR REVISAR</h3>
-            <p class="helper-text">Marca REVISADO para retirar el item de esta lista.</p>
+            <h3 id="operatorDocAlertsTitle">CARPETAS POR ESTADO SAG</h3>
+            <p class="helper-text">Selecciona uno o mas estados para filtrar las carpetas del servicio agronomo ganadero.</p>
+            <div id="operatorDocAlertsFilters" class="operator-doc-alerts-filters" role="group" aria-label="Filtros por estado de carpeta"></div>
             <div class="history-wrapper operator-doc-alerts-table-wrapper">
                 <table class="history-table">
                     <thead>
                         <tr>
                             <th>NRO INGRESO</th>
-                            <th>FECHA</th>
+                            <th>ULT. MOVIMIENTO</th>
+                            <th>CLIENTE</th>
+                            <th>RUT</th>
                             <th>SUCURSAL</th>
-                            <th>DOCUMENTOS AGREGADOS</th>
-                            <th>REVISADO</th>
+                            <th>REGION / COMUNA</th>
+                            <th>ESTADO CARPETA</th>
+                            <th>ACCION</th>
                         </tr>
                     </thead>
                     <tbody id="operatorDocAlertsBody">
                         <tr>
-                            <td colspan="5">Sin documentos nuevos por revisar.</td>
+                            <td colspan="8">Sin carpetas para mostrar.</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
             <p id="operatorDocAlertsMessage" class="form-message" role="status" aria-live="polite"></p>
             <div class="invoice-modal-actions">
-                <button type="button" id="operatorDocAlertsRefreshBtn" class="buscar">ACTUALIZAR</button>
+                <button type="button" id="operatorDocAlertsRefreshBtn" class="buscar">BUSCAR</button>
+                <button type="button" id="operatorDocAlertsClearBtn" class="limpiar">LIMPIAR FILTROS</button>
                 <button type="button" id="operatorDocAlertsCloseBtn" class="limpiar">CERRAR</button>
             </div>
         </div>
@@ -1233,18 +1243,10 @@
 
       window.SIA_CHATBOT_CONFIG = {
         enabled: false,
-        webhookUrl: "https://n8n.mi-registro.cl/webhook/2947fc8b-9cb7-481e-b2d3-3a28945655de/chat",
-        metadata: {
-          user_name: "<?php echo $_SESSION['user_name']; ?>",
-          nombre_sistema: "geo_rural"
-        },
-        windowWidth: "330px",
-        windowHeight: "500px",
-        windowWidthMobile: "calc(100vw - 20px)",
-        windowHeightMobile: "68vh"
+        webhookUrl: ""
       };
     </script>
-    <script src="../../assets/js/chatbot.js?v=20260426-01"></script>
-    <script src="../../script.js?v=20260426-01"></script>
+    <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
+    <script src="../../script.js?v=20260426-02"></script>
 </body>
 </html>

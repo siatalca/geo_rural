@@ -4,20 +4,20 @@ let API_BASE = resolveApiBase();
 const API_BASE_FALLBACKS = resolveApiFallbackBases(API_BASE);
 const AUTH_TOKEN_STORAGE = 'geo_rural_auth_token';
 const API_KEY_STORAGE = 'geo_rural_api_key';
-const DOCUMENT_OPTIONS_STORAGE = 'geo_rural_document_options';
+const DOCUMENT_OPTIONS_STORAGE = 'geo_rural_folder_status_options';
 const DOCUMENT_OPTIONS_STORAGE_VERSION = 2;
 const DOCUMENT_GROUP_IDS = ['grupo_1', 'grupo_2', 'grupo_3', 'grupo_4', 'grupo_5'];
 const DEFAULT_DOCUMENT_GROUP_TITLES = [
-    'Identificacion del cliente',
-    'Documentos de propiedad',
-    'Antecedentes tecnicos',
-    'Soportes complementarios',
-    'Documentos adicionales'
+    'Recepcion',
+    'Evaluacion',
+    'Resolucion',
+    'Certificado',
+    'Cierre'
 ];
 const OPERATOR_LAST_DEST_EMAIL_STORAGE = 'geo_rural_last_invoice_destination_email';
 const SECRETARY_DAILY_ALERT_STORAGE_PREFIX = 'geo_rural_secretary_no_movement_seen_';
 const SECRETARY_NO_MOVEMENT_DAYS = 8;
-const APP_BUILD = '2026-04-10-01';
+const APP_BUILD = '2026-04-26-02';
 const MAIL_SEND_PROGRESS_MIN_MS = 1600;
 const MAIL_SEND_PROGRESS_FINAL_MS = 900;
 const REQUESTED_INVOICES_PAGE_SIZE = 5;
@@ -467,7 +467,7 @@ const FACTURA_INLINE_ERROR_FIELD_IDS = [...FACTURA_REQUIRED_FIELD_IDS, 'facturaC
 const EXISTING_RECORD_SAVE_WARNING =
     'No se puede crear porque el registro ya existe. Si ha realizado cambios pulse en MODIFICAR para guardar los cambios.';
 const PENDING_MODIFY_REQUIRED_WARNING =
-    'Se detectaron cambios en el formulario o documentacion recibida. Favor guardar cambios pulsando el boton MODIFICAR.';
+    'Se detectaron cambios en el formulario o estado de carpeta. Favor guardar cambios pulsando el boton MODIFICAR.';
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.info(`[Geo Rural] Frontend build ${APP_BUILD}`);
@@ -615,6 +615,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         registroActionsSecretaryAnchor: document.getElementById('registroActionsSecretaryAnchor'),
         registroActionsRow: document.getElementById('registroActionsRow'),
         registroActionsDefaultAnchor: document.getElementById('registroActionsDefaultAnchor'),
+        folderStatusGroup: document.getElementById('folderStatusGroup'),
         documentosContainer: document.getElementById('documentosContainer'),
         formMessage: document.getElementById('formMessage'),
         historialBody: document.getElementById('historialBody'),
@@ -734,9 +735,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         secretaryNoMovementMessage: document.getElementById('secretaryNoMovementMessage'),
         secretaryNoMovementCloseBtn: document.getElementById('secretaryNoMovementCloseBtn'),
         operatorDocAlertsOverlay: document.getElementById('operatorDocAlertsOverlay'),
+        operatorDocAlertsFilters: document.getElementById('operatorDocAlertsFilters'),
         operatorDocAlertsBody: document.getElementById('operatorDocAlertsBody'),
         operatorDocAlertsMessage: document.getElementById('operatorDocAlertsMessage'),
         operatorDocAlertsRefreshBtn: document.getElementById('operatorDocAlertsRefreshBtn'),
+        operatorDocAlertsClearBtn: document.getElementById('operatorDocAlertsClearBtn'),
         operatorDocAlertsCloseBtn: document.getElementById('operatorDocAlertsCloseBtn'),
         dateRangeModalOverlay: document.getElementById('dateRangeModalOverlay'),
         dateRangeForm: document.getElementById('dateRangeForm'),
@@ -1115,6 +1118,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (ui.operatorDocAlertsRefreshBtn) {
         ui.operatorDocAlertsRefreshBtn.addEventListener('click', () => void refreshOperatorDocumentAlerts({ silent: false }));
     }
+    if (ui.operatorDocAlertsClearBtn) {
+        ui.operatorDocAlertsClearBtn.addEventListener('click', () => void handleClearOperatorDocumentAlertFilters());
+    }
     if (ui.operatorDocAlertsOverlay) {
         ui.operatorDocAlertsOverlay.addEventListener('click', (event) => {
             if (event.target === ui.operatorDocAlertsOverlay) {
@@ -1458,6 +1464,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             loadedIngresoOriginal = '';
             clearLoadedRegistroSnapshot();
             loadedRecordUnknownDocuments = [];
+            setSelectedFolderStatusValue('');
             loadedComentarioOriginal = '';
             resetFacturaForm();
             syncFacturaNumeroVisibility({ clearOnHide: true });
@@ -1798,6 +1805,7 @@ function showAppForUser(user) {
     setComentarioVisibilityByUser(user);
     setGuestReadOnlyUiState(user);
     syncFacturaNumeroVisibility({ clearOnHide: false });
+    void loadFolderStatusCatalogFromServer({ silent: true });
     syncOperatorDocumentAlertsButtonVisibility(user);
     void loadDateRangeBranches({ preserveSelection: false });
     setFormMessage(ui.facturaFormMessage, '', '');
@@ -1832,7 +1840,7 @@ function showAppForUser(user) {
             ui.adminToggleBranchesBtn.classList.toggle('hidden', !userCanManageCatalogs);
         }
         if (ui.adminToggleDocumentsBtn) {
-            ui.adminToggleDocumentsBtn.classList.toggle('hidden', !userCanManageCatalogs);
+            ui.adminToggleDocumentsBtn.classList.toggle('hidden', !isSuperUser(user));
         }
         if (ui.adminToggleEmailBtn) {
             ui.adminToggleEmailBtn.classList.toggle('hidden', !isSuperUser(user));
@@ -2043,7 +2051,7 @@ function showAuthCard(message = '') {
     if (ui.operatorDocAlertsBtn) {
         ui.operatorDocAlertsBtn.classList.add('hidden');
         ui.operatorDocAlertsBtn.classList.remove('has-pending');
-        ui.operatorDocAlertsBtn.textContent = 'DOCS NUEVOS';
+        ui.operatorDocAlertsBtn.textContent = 'BUSCAR CARPETAS';
     }
     setOperatorBillingVisibility(false);
     closeDateRangeModal();
@@ -2106,6 +2114,7 @@ function showAuthCard(message = '') {
     adminIngresoMode = 'current';
     appViewMode = 'registro';
     loadedRecordUnknownDocuments = [];
+    setSelectedFolderStatusValue('');
     loadedComentarioOriginal = '';
     setComentarioVisibilityByUser(null);
     setGuestReadOnlyUiState(null);
@@ -2147,6 +2156,7 @@ function handleSessionExpired(message) {
     loadedIngresoOriginal = '';
     clearLoadedRegistroSnapshot();
     loadedRecordUnknownDocuments = [];
+    setSelectedFolderStatusValue('');
     loadedComentarioOriginal = '';
     resetFacturaForm();
     closeDateRangeModal();
@@ -2208,7 +2218,7 @@ function canUseOperatorBilling(user) {
 }
 
 function canUseOperatorDocumentAlerts(user) {
-    return canUseOperatorBilling(user) && !isGuestUser(user);
+    return isOperatorUser(user) && !isGuestUser(user);
 }
 
 function canUseFacturaContainer(user) {
@@ -2363,6 +2373,21 @@ function setComentarioVisibilityByUser(user) {
     }
 }
 
+function syncFolderStatusVisibility(user = currentUser) {
+    const canSeeFolderStatus = isOperatorUser(user) && !isGuestUser(user);
+    const hasLoadedRecord = Boolean(loadedIngresoOriginal);
+
+    if (ui?.folderStatusGroup) {
+        ui.folderStatusGroup.classList.toggle('hidden', !canSeeFolderStatus);
+    }
+
+    if (ui?.documentosContainer) {
+        ui.documentosContainer.querySelectorAll('input[name="estadoCarpeta"]').forEach((inputNode) => {
+            inputNode.disabled = !(canSeeFolderStatus && hasLoadedRecord);
+        });
+    }
+}
+
 function setGuestReadOnlyUiState(user) {
     const isGuest = isGuestUser(user);
     const isSupervisorRestricted = isSupervisorUser(user) && !isGuest;
@@ -2406,7 +2431,7 @@ function setGuestReadOnlyUiState(user) {
             }
 
             const controlId = String(control.id || '');
-            const isDocumentCheckbox = type === 'checkbox' && String(control.name || '') === 'documentos';
+            const isFolderStatusControl = type === 'radio' && String(control.name || '') === 'estadoCarpeta';
             if (isSupervisorRestricted) {
                 const canEditComentario = controlId === 'comentario' && hasLoadedRecord;
                 const canUseSearchField = supervisorEditableFieldIds.has(controlId) && !hasLoadedRecord;
@@ -2414,10 +2439,10 @@ function setGuestReadOnlyUiState(user) {
                 return;
             }
             const canEditComentario = controlId === 'comentario' && hasLoadedRecord;
-            const canEditDocuments = isDocumentCheckbox && hasLoadedRecord;
+            const canEditFolderStatus = isFolderStatusControl && hasLoadedRecord;
             const canUseSearchField = operatorSearchFieldIds.has(controlId) && !hasLoadedRecord;
 
-            control.disabled = !(canEditComentario || canEditDocuments || canUseSearchField);
+            control.disabled = !(canEditComentario || canEditFolderStatus || canUseSearchField);
             return;
         }
 
@@ -2437,6 +2462,7 @@ function setGuestReadOnlyUiState(user) {
         populateComunas(ui.comuna, ui.region.value, selectedComuna);
     }
     syncFacturaNumeroVisibility({ clearOnHide: false });
+    syncFolderStatusVisibility(user);
 }
 
 function isPasswordChangeRequired(user) {
@@ -2478,7 +2504,7 @@ function hasAnyRegistroMainInputValue() {
         return false;
     }
 
-    return Boolean(ui.documentosContainer.querySelector('input[name="documentos"]:checked'));
+    return Boolean(ui.documentosContainer.querySelector('input[name="estadoCarpeta"]:checked'));
 }
 
 function normalizeRegistroSnapshotText(value) {
@@ -2488,11 +2514,9 @@ function normalizeRegistroSnapshotText(value) {
 }
 
 function buildCurrentRegistroSnapshot() {
-    const selectedDocuments = Array.from(ui?.documentosContainer?.querySelectorAll('input[name="documentos"]:checked') || [])
-        .map((input) => String(input.value || '').trim())
-        .filter((value) => value.length > 0);
+    const estadoCarpeta = getSelectedFolderStatusValue();
     const retainedUnknownDocs = Array.isArray(loadedRecordUnknownDocuments) ? loadedRecordUnknownDocuments : [];
-    const documentos = Array.from(new Set([...selectedDocuments, ...retainedUnknownDocs]))
+    const documentos = Array.from(new Set(retainedUnknownDocs))
         .map((value) => String(value || '').trim())
         .filter((value) => value.length > 0)
         .sort((left, right) => left.localeCompare(right, 'es'));
@@ -2509,6 +2533,7 @@ function buildCurrentRegistroSnapshot() {
         rol: normalizeRegistroSnapshotText(document.getElementById('rol')?.value),
         numLotes: normalizeRegistroSnapshotText(document.getElementById('numLotes')?.value),
         estado: normalizeEstadoValue(document.getElementById('estado')?.value),
+        estadoCarpeta,
         factura: {
             nombreRazonSocial: normalizeRegistroSnapshotText(ui?.facturaNombreRazon?.value),
             numeroFactura: normalizeRegistroSnapshotText(ui?.facturaNumero?.value),
@@ -4852,17 +4877,18 @@ function getDocumentOptionLabelByValue(value) {
 }
 
 function sanitizeOperatorDocumentAlertRecord(item) {
-    const alertId = Number(item?.id);
-    const docs = Array.isArray(item?.documentosAgregados) ? item.documentosAgregados : [];
-    const documentosAgregados = docs
-        .map((doc) => normalizeDocumentOptionValue(doc))
-        .filter((doc) => doc.length > 0);
+    const recordId = Number(item?.id);
     return {
-        id: Number.isInteger(alertId) && alertId > 0 ? alertId : 0,
+        id: Number.isInteger(recordId) && recordId > 0 ? recordId : 0,
         numIngreso: normalizeInvoiceText(item?.numIngreso, 20),
+        nombre: normalizeInvoiceText(item?.nombre, 255),
+        rut: normalizeInvoiceText(item?.rut, 20),
         sucursal: normalizeInvoiceText(item?.sucursal, 120),
+        region: normalizeInvoiceText(item?.region, 120),
+        comuna: normalizeInvoiceText(item?.comuna, 120),
+        estadoCarpeta: normalizeDocumentOptionValue(item?.estadoCarpeta),
         createdAt: String(item?.createdAt || ''),
-        documentosAgregados
+        updatedAt: String(item?.updatedAt || item?.createdAt || '')
     };
 }
 
@@ -4871,9 +4897,8 @@ function updateOperatorDocumentAlertsButtonState() {
         return;
     }
 
-    const pendingCount = Array.isArray(operatorDocumentAlerts) ? operatorDocumentAlerts.length : 0;
-    ui.operatorDocAlertsBtn.textContent = pendingCount > 0 ? `DOCS NUEVOS (${pendingCount})` : 'DOCS NUEVOS';
-    ui.operatorDocAlertsBtn.classList.toggle('has-pending', pendingCount > 0);
+    ui.operatorDocAlertsBtn.textContent = 'BUSCAR CARPETAS';
+    ui.operatorDocAlertsBtn.classList.remove('has-pending');
 }
 
 function syncOperatorDocumentAlertsButtonVisibility(user) {
@@ -4893,6 +4918,61 @@ function syncOperatorDocumentAlertsButtonVisibility(user) {
     updateOperatorDocumentAlertsButtonState();
 }
 
+function getOperatorFolderStatusOptions() {
+    return cloneDocumentOptions(configuredDocumentOptions, configuredDocumentGroups);
+}
+
+function renderOperatorDocumentAlertFilters() {
+    if (!ui?.operatorDocAlertsFilters) {
+        return;
+    }
+
+    const options = getOperatorFolderStatusOptions();
+    ui.operatorDocAlertsFilters.innerHTML = '';
+    if (options.length === 0) {
+        const emptyNode = document.createElement('p');
+        emptyNode.className = 'docs-empty-message';
+        emptyNode.textContent = 'Sin estados configurados para filtrar.';
+        ui.operatorDocAlertsFilters.appendChild(emptyNode);
+        return;
+    }
+
+    options.forEach((option) => {
+        const labelNode = document.createElement('label');
+        labelNode.className = 'doc-item operator-doc-alerts-filter-item';
+
+        const inputNode = document.createElement('input');
+        inputNode.type = 'checkbox';
+        inputNode.name = 'operatorEstadoCarpetaFiltro';
+        inputNode.value = option.value;
+        inputNode.addEventListener('change', () => void refreshOperatorDocumentAlerts({ silent: false }));
+
+        labelNode.appendChild(inputNode);
+        labelNode.appendChild(document.createTextNode(` ${option.label}`));
+        ui.operatorDocAlertsFilters.appendChild(labelNode);
+    });
+}
+
+function getSelectedOperatorFolderStatusFilters() {
+    if (!ui?.operatorDocAlertsFilters) {
+        return [];
+    }
+
+    return Array.from(ui.operatorDocAlertsFilters.querySelectorAll('input[name="operatorEstadoCarpetaFiltro"]:checked'))
+        .map((inputNode) => normalizeDocumentOptionValue(inputNode.value))
+        .filter((value) => value.length > 0);
+}
+
+async function handleClearOperatorDocumentAlertFilters() {
+    if (ui?.operatorDocAlertsFilters) {
+        ui.operatorDocAlertsFilters.querySelectorAll('input[name="operatorEstadoCarpetaFiltro"]').forEach((inputNode) => {
+            inputNode.checked = false;
+        });
+    }
+
+    await refreshOperatorDocumentAlerts({ silent: false });
+}
+
 function renderOperatorDocumentAlertsRows(records) {
     if (!ui?.operatorDocAlertsBody) {
         return;
@@ -4900,45 +4980,63 @@ function renderOperatorDocumentAlertsRows(records) {
 
     ui.operatorDocAlertsBody.innerHTML = '';
     if (!Array.isArray(records) || records.length === 0) {
-        ui.operatorDocAlertsBody.innerHTML = '<tr><td colspan="5">Sin documentos nuevos por revisar.</td></tr>';
+        ui.operatorDocAlertsBody.innerHTML = '<tr><td colspan="8">Sin carpetas para mostrar.</td></tr>';
         return;
     }
 
     records.forEach((item) => {
         const row = document.createElement('tr');
-        const docs = Array.isArray(item?.documentosAgregados) ? item.documentosAgregados : [];
-        const docsListHtml =
-            docs.length > 0
-                ? `<ul class="operator-doc-alerts-doc-list">${docs
-                      .map((doc) => `<li>${escapeHtml(getDocumentOptionLabelByValue(doc) || doc)}</li>`)
-                      .join('')}</ul>`
-                : '<span>Sin detalle.</span>';
-
         row.innerHTML = `
             <td>${escapeHtml(item?.numIngreso || '')}</td>
-            <td>${escapeHtml(formatDateTime(item?.createdAt || ''))}</td>
+            <td>${escapeHtml(formatDateTime(item?.updatedAt || item?.createdAt || ''))}</td>
+            <td>${escapeHtml(item?.nombre || '')}</td>
+            <td>${escapeHtml(item?.rut || '')}</td>
             <td>${escapeHtml(item?.sucursal || '')}</td>
-            <td>${docsListHtml}</td>
+            <td>${escapeHtml([item?.region, item?.comuna].filter(Boolean).join(' / '))}</td>
+            <td>${escapeHtml(getDocumentOptionLabelByValue(item?.estadoCarpeta) || item?.estadoCarpeta || 'Sin estado')}</td>
             <td></td>
         `;
 
         const actionCell = row.lastElementChild;
-        const reviewLabel = document.createElement('label');
-        reviewLabel.className = 'operator-doc-alerts-review-label';
-        const reviewInput = document.createElement('input');
-        reviewInput.type = 'checkbox';
-        reviewInput.addEventListener('change', () => {
-            if (!reviewInput.checked) {
-                return;
-            }
-            void handleMarkOperatorDocumentAlertReviewed(Number(item?.id), reviewInput);
+        const loadButton = document.createElement('button');
+        loadButton.type = 'button';
+        loadButton.className = 'admin-edit-btn';
+        loadButton.textContent = 'CARGAR';
+        loadButton.addEventListener('click', () => {
+            void handleLoadOperatorFolderStatusRecord(item?.numIngreso, loadButton);
         });
-        reviewLabel.appendChild(reviewInput);
-        reviewLabel.appendChild(document.createTextNode('Revisado'));
-        actionCell.appendChild(reviewLabel);
+        actionCell.appendChild(loadButton);
 
         ui.operatorDocAlertsBody.appendChild(row);
     });
+}
+
+async function handleLoadOperatorFolderStatusRecord(numIngreso, buttonNode = null) {
+    const normalizedIngreso = String(numIngreso || '').trim();
+    if (!normalizedIngreso) {
+        setFormMessage(ui?.operatorDocAlertsMessage, 'No fue posible identificar la carpeta seleccionada.', 'error');
+        return;
+    }
+
+    if (loadedIngresoOriginal && hasPendingLoadedRegistroChanges()) {
+        showPendingModifyRequiredWarningPopup();
+        return;
+    }
+
+    if (buttonNode) {
+        buttonNode.disabled = true;
+    }
+
+    try {
+        await loadRegistroByIngreso(normalizedIngreso, 'filtro de estado de carpeta');
+        closeOperatorDocumentAlertsModal();
+    } catch (error) {
+        setFormMessage(ui?.operatorDocAlertsMessage, error.message, 'error');
+    } finally {
+        if (buttonNode) {
+            buttonNode.disabled = false;
+        }
+    }
 }
 
 function closeOperatorDocumentAlertsModal() {
@@ -4952,13 +5050,14 @@ function openOperatorDocumentAlertsModal() {
         return;
     }
 
+    renderOperatorDocumentAlertFilters();
     renderOperatorDocumentAlertsRows(operatorDocumentAlerts);
     if (operatorDocumentAlerts.length === 0) {
-        setFormMessage(ui.operatorDocAlertsMessage, 'Sin documentos nuevos por revisar.', 'success');
+        setFormMessage(ui.operatorDocAlertsMessage, 'Sin carpetas para mostrar.', 'success');
     } else {
         setFormMessage(
             ui.operatorDocAlertsMessage,
-            `Pendientes por revisar: ${operatorDocumentAlerts.length}.`,
+            `Carpetas encontradas: ${operatorDocumentAlerts.length}.`,
             'success'
         );
     }
@@ -4971,11 +5070,15 @@ function openOperatorDocumentAlertsModal() {
 }
 
 async function fetchOperatorDocumentAlerts() {
-    const result = await apiRequest('/registros/documentos-alertas');
-    const records = Array.isArray(result?.alertas) ? result.alertas : [];
+    const selectedStatuses = getSelectedOperatorFolderStatusFilters();
+    const query = new URLSearchParams();
+    selectedStatuses.forEach((estadoCarpeta) => query.append('estadoCarpeta', estadoCarpeta));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const result = await apiRequest(`/registros/carpeta-estados${suffix}`);
+    const records = Array.isArray(result?.registros) ? result.registros : [];
     operatorDocumentAlerts = records
         .map((item) => sanitizeOperatorDocumentAlertRecord(item))
-        .filter((item) => item.id > 0);
+        .filter((item) => item.numIngreso);
     updateOperatorDocumentAlertsButtonState();
     return operatorDocumentAlerts;
 }
@@ -4993,11 +5096,11 @@ async function refreshOperatorDocumentAlerts({ silent = true } = {}) {
         renderOperatorDocumentAlertsRows(operatorDocumentAlerts);
         if (!silent) {
             if (operatorDocumentAlerts.length === 0) {
-                setFormMessage(ui?.operatorDocAlertsMessage, 'Sin documentos nuevos por revisar.', 'success');
+                setFormMessage(ui?.operatorDocAlertsMessage, 'Sin carpetas para mostrar.', 'success');
             } else {
                 setFormMessage(
                     ui?.operatorDocAlertsMessage,
-                    `Pendientes por revisar: ${operatorDocumentAlerts.length}.`,
+                    `Carpetas encontradas: ${operatorDocumentAlerts.length}.`,
                     'success'
                 );
             }
@@ -5005,7 +5108,7 @@ async function refreshOperatorDocumentAlerts({ silent = true } = {}) {
         return operatorDocumentAlerts;
     } catch (error) {
         if (silent) {
-            console.warn('[Geo Rural] No fue posible actualizar alertas de documentos para operador.', error);
+            console.warn('[Geo Rural] No fue posible actualizar carpetas por estado para operador.', error);
             return [];
         }
         setFormMessage(ui?.operatorDocAlertsMessage, error.message, 'error');
@@ -5013,63 +5116,14 @@ async function refreshOperatorDocumentAlerts({ silent = true } = {}) {
     }
 }
 
-async function handleMarkOperatorDocumentAlertReviewed(alertId, inputElement) {
-    if (!canUseOperatorDocumentAlerts(currentUser)) {
-        setFormMessage(ui?.operatorDocAlertsMessage, 'Solo OPERADOR o SUPER pueden revisar esta lista.', 'error');
-        if (inputElement) {
-            inputElement.checked = false;
-        }
-        return;
-    }
-
-    if (!Number.isInteger(alertId) || alertId <= 0) {
-        setFormMessage(ui?.operatorDocAlertsMessage, 'No fue posible identificar el item seleccionado.', 'error');
-        if (inputElement) {
-            inputElement.checked = false;
-        }
-        return;
-    }
-
-    if (inputElement) {
-        inputElement.disabled = true;
-    }
-
-    try {
-        const result = await apiRequest(`/registros/documentos-alertas/${encodeURIComponent(alertId)}/revisar`, {
-            method: 'POST',
-            body: JSON.stringify({})
-        });
-        operatorDocumentAlerts = operatorDocumentAlerts.filter((item) => Number(item?.id) !== alertId);
-        updateOperatorDocumentAlertsButtonState();
-        renderOperatorDocumentAlertsRows(operatorDocumentAlerts);
-        if (operatorDocumentAlerts.length === 0) {
-            setFormMessage(ui?.operatorDocAlertsMessage, 'Sin documentos nuevos por revisar.', 'success');
-        } else {
-            setFormMessage(
-                ui?.operatorDocAlertsMessage,
-                result?.message || `Item revisado. Pendientes: ${operatorDocumentAlerts.length}.`,
-                'success'
-            );
-        }
-    } catch (error) {
-        if (inputElement) {
-            inputElement.checked = false;
-        }
-        setFormMessage(ui?.operatorDocAlertsMessage, error.message, 'error');
-    } finally {
-        if (inputElement) {
-            inputElement.disabled = false;
-        }
-    }
-}
-
 async function handleOpenOperatorDocumentAlertsModal() {
     if (!canUseOperatorDocumentAlerts(currentUser)) {
-        setFormMessage(ui?.formMessage, 'Solo OPERADOR o SUPER pueden ver esta lista.', 'error');
+        setFormMessage(ui?.formMessage, 'Solo OPERADOR puede buscar carpetas por estado.', 'error');
         return;
     }
 
     try {
+        renderOperatorDocumentAlertFilters();
         await refreshOperatorDocumentAlerts({ silent: false });
         openOperatorDocumentAlertsModal();
     } catch (error) {
@@ -6871,6 +6925,9 @@ function setAdminManagementView(view) {
     if (normalizedView === 'email' && !isSuperUser(currentUser)) {
         normalizedView = 'registro';
     }
+    if (normalizedView === 'documents' && !isSuperUser(currentUser)) {
+        normalizedView = 'registro';
+    }
     if (normalizedView === 'mailTemplates' && !isSuperUser(currentUser)) {
         normalizedView = 'registro';
     }
@@ -6946,7 +7003,7 @@ function setAdminDocumentsVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleDocumentsBtn.textContent = 'GESTIONAR DOCUMENTOS';
+    ui.adminToggleDocumentsBtn.textContent = 'GESTIONAR ESTADOS';
     setAdminManagementView(isVisible ? 'documents' : 'registro');
 }
 
@@ -7006,7 +7063,7 @@ function handleAdminToggleBranches() {
 }
 
 function handleAdminToggleDocuments() {
-    if (!canManageAdminCatalogs(currentUser)) {
+    if (!isSuperUser(currentUser)) {
         return;
     }
 
@@ -8409,7 +8466,7 @@ function initializeDocumentOptions() {
 function buildDefaultDocumentGroups() {
     return DOCUMENT_GROUP_IDS.map((groupId, index) => ({
         id: groupId,
-        label: DEFAULT_DOCUMENT_GROUP_TITLES[index] || `Seccion ${index + 1}`
+        label: DEFAULT_DOCUMENT_GROUP_TITLES[index] || `Categoria ${index + 1}`
     }));
 }
 
@@ -8436,7 +8493,7 @@ function sanitizeDocumentGroups(groups, fallbackGroups = null) {
     fallbackSource.forEach((item, index) => {
         const defaultId = DOCUMENT_GROUP_IDS[index];
         const id = normalizeDocumentGroupId(item?.id) || defaultId;
-        const label = normalizeDocumentGroupLabel(item?.label) || DEFAULT_DOCUMENT_GROUP_TITLES[index] || `Seccion ${index + 1}`;
+        const label = normalizeDocumentGroupLabel(item?.label) || DEFAULT_DOCUMENT_GROUP_TITLES[index] || `Categoria ${index + 1}`;
         if (id && !fallbackMap.has(id)) {
             fallbackMap.set(id, label);
         }
@@ -8453,7 +8510,7 @@ function sanitizeDocumentGroups(groups, fallbackGroups = null) {
 
     return DOCUMENT_GROUP_IDS.map((groupId, index) => ({
         id: groupId,
-        label: sourceMap.get(groupId) || fallbackMap.get(groupId) || DEFAULT_DOCUMENT_GROUP_TITLES[index] || `Seccion ${index + 1}`
+        label: sourceMap.get(groupId) || fallbackMap.get(groupId) || DEFAULT_DOCUMENT_GROUP_TITLES[index] || `Categoria ${index + 1}`
     }));
 }
 
@@ -8481,7 +8538,7 @@ function getDefaultDocumentOptionsFromDom(groups = defaultDocumentGroups) {
 
     const options = [];
     ui.documentosContainer.querySelectorAll('label.doc-item').forEach((labelNode) => {
-        const inputNode = labelNode.querySelector('input[name="documentos"]');
+        const inputNode = labelNode.querySelector('input[name="estadoCarpeta"], input[name="documentos"]');
         if (!inputNode) {
             return;
         }
@@ -8527,7 +8584,7 @@ function buildDocumentOptionValue(label) {
         .replace(/[\u0300-\u036f]/g, '');
 
     const value = normalizeDocumentOptionValue(normalizedLabel.replace(/[^a-z0-9]+/g, '_'));
-    return value || 'documento';
+    return value || 'estado';
 }
 
 function sanitizeDocumentOptions(options, fallbackOptions = [], groups = configuredDocumentGroups) {
@@ -8628,14 +8685,90 @@ function persistDocumentOptions(options) {
     }
 }
 
+function applyFolderStatusCatalog(groups, options) {
+    configuredDocumentGroups = sanitizeDocumentGroups(groups, defaultDocumentGroups);
+    configuredDocumentOptions = sanitizeDocumentOptions(options, defaultDocumentOptions, configuredDocumentGroups);
+    persistDocumentOptions(configuredDocumentOptions);
+    renderAdminDocumentGroupTitleInputs(configuredDocumentGroups);
+    renderAdminDocumentGroupSelect(configuredDocumentGroups, ui?.adminDocumentGroup?.value);
+    renderDocumentOptions(configuredDocumentOptions, getCurrentCheckedDocumentValues());
+    renderAdminDocuments(configuredDocumentOptions);
+    if (ui?.operatorDocAlertsOverlay && !ui.operatorDocAlertsOverlay.classList.contains('hidden')) {
+        renderOperatorDocumentAlertFilters();
+    }
+}
+
+async function loadFolderStatusCatalogFromServer({ silent = true } = {}) {
+    if (!currentUser || isGuestUser(currentUser)) {
+        return null;
+    }
+
+    try {
+        const catalog = await apiRequest('/carpeta-estados/catalogo');
+        applyFolderStatusCatalog(catalog?.groups, catalog?.options);
+        return catalog;
+    } catch (error) {
+        if (!silent) {
+            setFormMessage(ui?.adminDocumentMessage || ui?.formMessage, error.message, 'error');
+        } else {
+            console.warn('[Geo Rural] No fue posible cargar catalogo de estados de carpeta.', error);
+        }
+        return null;
+    }
+}
+
+async function saveFolderStatusCatalogToServer({ silent = true } = {}) {
+    if (!isSuperUser(currentUser)) {
+        return null;
+    }
+
+    try {
+        const catalog = await apiRequest('/admin/carpeta-estados/catalogo', {
+            method: 'PUT',
+            body: JSON.stringify({
+                groups: cloneDocumentGroups(configuredDocumentGroups),
+                options: cloneDocumentOptions(configuredDocumentOptions, configuredDocumentGroups)
+            })
+        });
+        applyFolderStatusCatalog(catalog?.groups, catalog?.options);
+        if (!silent) {
+            setFormMessage(ui?.adminDocumentMessage, catalog?.message || 'Estados de carpeta guardados correctamente.', 'success');
+        }
+        return catalog;
+    } catch (error) {
+        setFormMessage(ui?.adminDocumentMessage, error.message, 'error');
+        return null;
+    }
+}
+
 function getCurrentCheckedDocumentValues() {
     if (!ui || !ui.documentosContainer) {
         return [];
     }
 
-    return Array.from(ui.documentosContainer.querySelectorAll('input[name="documentos"]:checked'))
-        .map((input) => String(input.value || '').trim())
+    return Array.from(ui.documentosContainer.querySelectorAll('input[name="estadoCarpeta"]:checked, input[name="documentos"]:checked'))
+        .map((input) => normalizeDocumentOptionValue(input.value))
         .filter((value) => value.length > 0);
+}
+
+function getSelectedFolderStatusValue() {
+    if (!ui?.documentosContainer) {
+        return '';
+    }
+
+    const selectedInput = ui.documentosContainer.querySelector('input[name="estadoCarpeta"]:checked');
+    return normalizeDocumentOptionValue(selectedInput?.value || '');
+}
+
+function setSelectedFolderStatusValue(value) {
+    if (!ui?.documentosContainer) {
+        return;
+    }
+
+    const normalizedValue = normalizeDocumentOptionValue(value);
+    ui.documentosContainer.querySelectorAll('input[name="estadoCarpeta"]').forEach((inputNode) => {
+        inputNode.checked = Boolean(normalizedValue) && normalizeDocumentOptionValue(inputNode.value) === normalizedValue;
+    });
 }
 
 function renderDocumentOptions(options, selectedValues = null) {
@@ -8653,8 +8786,9 @@ function renderDocumentOptions(options, selectedValues = null) {
     if (!Array.isArray(safeOptions) || safeOptions.length === 0) {
         const emptyNode = document.createElement('p');
         emptyNode.className = 'docs-empty-message';
-        emptyNode.textContent = 'Sin documentos configurados.';
+        emptyNode.textContent = 'Sin estados configurados.';
         ui.documentosContainer.appendChild(emptyNode);
+        syncFolderStatusVisibility(currentUser);
         return;
     }
 
@@ -8676,7 +8810,7 @@ function renderDocumentOptions(options, selectedValues = null) {
         if (groupOptions.length === 0) {
             const groupEmptyNode = document.createElement('p');
             groupEmptyNode.className = 'docs-group-empty';
-            groupEmptyNode.textContent = 'Sin documentos en esta seccion.';
+            groupEmptyNode.textContent = 'Sin estados en esta categoria.';
             groupSection.appendChild(groupEmptyNode);
             ui.documentosContainer.appendChild(groupSection);
             return;
@@ -8687,14 +8821,14 @@ function renderDocumentOptions(options, selectedValues = null) {
             itemLabel.className = 'doc-item';
             itemLabel.dataset.docGroupId = group.id;
 
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.name = 'documentos';
-            checkbox.value = option.value;
-            checkbox.checked = selectedSet.has(option.value);
-            checkbox.dataset.docGroupId = group.id;
+            const radioInput = document.createElement('input');
+            radioInput.type = 'radio';
+            radioInput.name = 'estadoCarpeta';
+            radioInput.value = option.value;
+            radioInput.checked = selectedSet.has(option.value);
+            radioInput.dataset.docGroupId = group.id;
 
-            itemLabel.appendChild(checkbox);
+            itemLabel.appendChild(radioInput);
             itemLabel.appendChild(document.createTextNode(` ${option.label}`));
             gridNode.appendChild(itemLabel);
         });
@@ -8702,6 +8836,7 @@ function renderDocumentOptions(options, selectedValues = null) {
         groupSection.appendChild(gridNode);
         ui.documentosContainer.appendChild(groupSection);
     });
+    syncFolderStatusVisibility(currentUser);
 }
 
 function renderAdminDocuments(options) {
@@ -8712,7 +8847,7 @@ function renderAdminDocuments(options) {
     const safeOptions = sanitizeDocumentOptions(options, defaultDocumentOptions, configuredDocumentGroups);
     ui.adminDocumentsBody.innerHTML = '';
     if (!Array.isArray(safeOptions) || safeOptions.length === 0) {
-        ui.adminDocumentsBody.innerHTML = '<tr><td colspan="4">Sin documentos para mostrar.</td></tr>';
+        ui.adminDocumentsBody.innerHTML = '<tr><td colspan="4">Sin estados para mostrar.</td></tr>';
         return;
     }
 
@@ -8747,11 +8882,11 @@ function renderAdminDocuments(options) {
 function getDocumentGroupLabelById(groupId) {
     const normalizedGroupId = normalizeDocumentGroupId(groupId);
     if (!normalizedGroupId) {
-        return 'Seccion';
+        return 'Categoria';
     }
 
     const match = cloneDocumentGroups(configuredDocumentGroups).find((item) => item.id === normalizedGroupId);
-    return normalizeDocumentGroupLabel(match?.label || '').trim() || 'Seccion';
+    return normalizeDocumentGroupLabel(match?.label || '').trim() || 'Categoria';
 }
 
 function renderAdminDocumentGroupSelect(groups, selectedGroupId = '') {
@@ -8787,7 +8922,7 @@ function renderAdminDocumentGroupTitleInputs(groups) {
         fieldWrap.className = 'admin-doc-group-item';
 
         const titleNode = document.createElement('span');
-        titleNode.textContent = `Seccion ${index + 1}`;
+        titleNode.textContent = `Categoria ${index + 1}`;
         fieldWrap.appendChild(titleNode);
 
         const inputNode = document.createElement('input');
@@ -8816,8 +8951,8 @@ function readDocumentGroupsFromInputs(fallbackGroups) {
 }
 
 function handleAdminDocumentGroupTitlesSave() {
-    if (!canManageAdminCatalogs(currentUser)) {
-        setFormMessage(ui.adminDocumentMessage, 'Solo ADMIN o SUPER pueden editar secciones de documentos.', 'error');
+    if (!isSuperUser(currentUser)) {
+        setFormMessage(ui.adminDocumentMessage, 'Solo SUPER puede editar categorias de estados.', 'error');
         return;
     }
 
@@ -8829,7 +8964,8 @@ function handleAdminDocumentGroupTitlesSave() {
     renderAdminDocumentGroupSelect(configuredDocumentGroups, ui?.adminDocumentGroup?.value);
     renderDocumentOptions(configuredDocumentOptions);
     renderAdminDocuments(configuredDocumentOptions);
-    setFormMessage(ui.adminDocumentMessage, 'Titulos de secciones actualizados correctamente.', 'success');
+    setFormMessage(ui.adminDocumentMessage, 'Categorias actualizadas correctamente.', 'success');
+    void saveFolderStatusCatalogToServer({ silent: true });
 }
 
 function resetDocumentInputs() {
@@ -8850,9 +8986,9 @@ function enterDocumentEditMode(option) {
     ui.adminDocumentLabel.value = option.label;
     const selectedGroupId = normalizeDocumentGroupId(option?.groupId) || configuredDocumentGroups[0]?.id || DOCUMENT_GROUP_IDS[0];
     renderAdminDocumentGroupSelect(configuredDocumentGroups, selectedGroupId);
-    ui.adminDocumentSaveBtn.textContent = 'GUARDAR DOCUMENTO';
+    ui.adminDocumentSaveBtn.textContent = 'GUARDAR ESTADO';
     ui.adminDocumentCancelBtn.classList.remove('hidden');
-    setFormMessage(ui.adminDocumentMessage, `Editando documento ${option.label}.`, 'success');
+    setFormMessage(ui.adminDocumentMessage, `Editando estado ${option.label}.`, 'success');
 }
 
 function exitDocumentEditMode() {
@@ -8860,7 +8996,7 @@ function exitDocumentEditMode() {
     resetDocumentInputs();
 
     if (ui && ui.adminDocumentSaveBtn) {
-        ui.adminDocumentSaveBtn.textContent = 'AGREGAR DOCUMENTO';
+        ui.adminDocumentSaveBtn.textContent = 'AGREGAR ESTADO';
     }
     if (ui && ui.adminDocumentCancelBtn) {
         ui.adminDocumentCancelBtn.classList.add('hidden');
@@ -8869,30 +9005,30 @@ function exitDocumentEditMode() {
 
 function handleAdminDocumentCancel() {
     exitDocumentEditMode();
-    setFormMessage(ui.adminDocumentMessage, 'Edicion de documento cancelada.', 'success');
+    setFormMessage(ui.adminDocumentMessage, 'Edicion de estado cancelada.', 'success');
 }
 
 function handleAdminDocumentSave() {
-    if (!canManageAdminCatalogs(currentUser)) {
-        setFormMessage(ui.adminDocumentMessage, 'Solo ADMIN o SUPER pueden gestionar documentos.', 'error');
+    if (!isSuperUser(currentUser)) {
+        setFormMessage(ui.adminDocumentMessage, 'Solo SUPER puede gestionar estados.', 'error');
         return;
     }
 
     const label = normalizeDocumentOptionLabel(ui.adminDocumentLabel?.value);
     if (!label) {
-        setFormMessage(ui.adminDocumentMessage, 'Ingresa un nombre para el documento.', 'error');
+        setFormMessage(ui.adminDocumentMessage, 'Ingresa un nombre para el estado.', 'error');
         return;
     }
 
     if (label.length > 120) {
-        setFormMessage(ui.adminDocumentMessage, 'El nombre del documento no puede exceder 120 caracteres.', 'error');
+        setFormMessage(ui.adminDocumentMessage, 'El nombre del estado no puede exceder 120 caracteres.', 'error');
         return;
     }
 
     const selectedGroupId = normalizeDocumentGroupId(ui?.adminDocumentGroup?.value);
     const validGroupIds = new Set(cloneDocumentGroups(configuredDocumentGroups).map((item) => item.id));
     if (!selectedGroupId || !validGroupIds.has(selectedGroupId)) {
-        setFormMessage(ui.adminDocumentMessage, 'Selecciona una seccion valida para el documento.', 'error');
+        setFormMessage(ui.adminDocumentMessage, 'Selecciona una categoria valida para el estado.', 'error');
         return;
     }
 
@@ -8900,7 +9036,7 @@ function handleAdminDocumentSave() {
     if (editingDocumentValue) {
         const targetIndex = options.findIndex((item) => item.value === editingDocumentValue);
         if (targetIndex === -1) {
-            setFormMessage(ui.adminDocumentMessage, 'No fue posible encontrar el documento en edicion.', 'error');
+            setFormMessage(ui.adminDocumentMessage, 'No fue posible encontrar el estado en edicion.', 'error');
             exitDocumentEditMode();
             return;
         }
@@ -8912,13 +9048,14 @@ function handleAdminDocumentSave() {
         renderDocumentOptions(configuredDocumentOptions);
         renderAdminDocuments(configuredDocumentOptions);
         exitDocumentEditMode();
-        setFormMessage(ui.adminDocumentMessage, `Documento ${label} actualizado correctamente.`, 'success');
+        setFormMessage(ui.adminDocumentMessage, `Estado ${label} actualizado correctamente.`, 'success');
+        void saveFolderStatusCatalogToServer({ silent: true });
         return;
     }
 
     let generatedValue = buildDocumentOptionValue(label);
     if (!generatedValue) {
-        setFormMessage(ui.adminDocumentMessage, 'No fue posible generar el identificador del documento.', 'error');
+        setFormMessage(ui.adminDocumentMessage, 'No fue posible generar el identificador del estado.', 'error');
         return;
     }
 
@@ -8937,16 +9074,17 @@ function handleAdminDocumentSave() {
     renderDocumentOptions(configuredDocumentOptions);
     renderAdminDocuments(configuredDocumentOptions);
     exitDocumentEditMode();
-    setFormMessage(ui.adminDocumentMessage, `Documento ${label} agregado correctamente.`, 'success');
+    setFormMessage(ui.adminDocumentMessage, `Estado ${label} agregado correctamente.`, 'success');
+    void saveFolderStatusCatalogToServer({ silent: true });
 }
 
 function handleAdminDocumentDelete(option) {
-    if (!canManageAdminCatalogs(currentUser)) {
-        setFormMessage(ui.adminDocumentMessage, 'Solo ADMIN o SUPER pueden eliminar documentos.', 'error');
+    if (!isSuperUser(currentUser)) {
+        setFormMessage(ui.adminDocumentMessage, 'Solo SUPER puede eliminar estados.', 'error');
         return;
     }
 
-    const confirmDelete = window.confirm(`Eliminar documento ${option.label}?`);
+    const confirmDelete = window.confirm(`Eliminar estado ${option.label}?`);
     if (!confirmDelete) {
         return;
     }
@@ -8962,7 +9100,8 @@ function handleAdminDocumentDelete(option) {
         exitDocumentEditMode();
     }
 
-    setFormMessage(ui.adminDocumentMessage, `Documento ${option.label} eliminado.`, 'success');
+    setFormMessage(ui.adminDocumentMessage, `Estado ${option.label} eliminado.`, 'success');
+    void saveFolderStatusCatalogToServer({ silent: true });
 }
 
 async function handleAdminCreateUser() {
@@ -9297,7 +9436,7 @@ async function handleGuardar() {
             return;
         }
 
-        setFormMessage(ui.formMessage, 'Tu rol solo puede agregar comentarios y actualizar documentacion recibida.', 'error');
+        setFormMessage(ui.formMessage, 'Tu rol solo puede agregar comentarios y actualizar estado de carpeta.', 'error');
         return;
     }
 
@@ -9396,8 +9535,13 @@ async function handleModificar() {
     };
     if (isOperatorRestricted) {
         clearRegistroFieldErrors();
+        if (!data.estadoCarpeta) {
+            setFormMessage(ui.formMessage, 'Selecciona el estado actual de la carpeta antes de modificar.', 'error');
+            return;
+        }
         payloadToSend = {
             numIngresoNuevo: routeIngreso,
+            estadoCarpeta: data.estadoCarpeta,
             documentos: Array.isArray(data.documentos) ? data.documentos : []
         };
     } else {
@@ -9474,7 +9618,7 @@ async function handleModificar() {
         setFormMessage(
             ui.formMessage,
             isOperatorRestricted
-                ? `Documentacion del registro ${finalIngreso} actualizada correctamente. La vista permanece cargada hasta que pulses LIMPIAR.`
+                ? `Estado de carpeta del registro ${finalIngreso} actualizado correctamente. La vista permanece cargada hasta que pulses LIMPIAR.`
                 : `Registro ${finalIngreso} modificado correctamente. La vista permanece cargada hasta que pulses LIMPIAR.`,
             'success'
         );
@@ -9564,6 +9708,7 @@ async function resetRegistroFormAfterSubmit() {
     loadedIngresoOriginal = '';
     clearLoadedRegistroSnapshot();
     loadedRecordUnknownDocuments = [];
+    setSelectedFolderStatusValue('');
     loadedComentarioOriginal = '';
     resetFacturaForm();
 
@@ -9765,6 +9910,7 @@ async function loadNextIngreso(numIngresoInput, messageElement) {
         loadedIngresoOriginal = '';
         clearLoadedRegistroSnapshot();
         loadedRecordUnknownDocuments = [];
+        setSelectedFolderStatusValue('');
         loadedComentarioOriginal = '';
         updateRegistroActionButtons();
     } catch (error) {
@@ -9835,11 +9981,9 @@ function enforceNombreTitleCase(element) {
 }
 
 function collectFormData(form) {
-    const selectedDocuments = Array.from(form.querySelectorAll('input[name="documentos"]:checked'))
-        .map((input) => String(input.value || '').trim())
-        .filter((value) => value.length > 0);
     const retainedUnknownDocs = loadedIngresoOriginal ? loadedRecordUnknownDocuments : [];
-    const documentos = [...new Set([...selectedDocuments, ...retainedUnknownDocs])];
+    const documentos = [...new Set(retainedUnknownDocs)];
+    const estadoCarpeta = getSelectedFolderStatusValue();
 
     const comentarioIngresado = formatComentarioTitleCase(document.getElementById('comentario').value).trim();
     const comentarioFinal = comentarioIngresado || (loadedIngresoOriginal ? loadedComentarioOriginal : '');
@@ -9856,6 +10000,7 @@ function collectFormData(form) {
         rol: document.getElementById('rol').value.trim(),
         numLotes: document.getElementById('numLotes').value,
         estado: document.getElementById('estado').value,
+        estadoCarpeta,
         comentario: comentarioFinal,
         documentos,
         factura: collectFacturaSnapshotData()
@@ -9884,10 +10029,10 @@ function fillForm(form, data, comunaSelect) {
     const incomingDocs = Array.isArray(data.documentos)
         ? data.documentos.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
         : [];
-    const visibleValues = new Set(configuredDocumentOptions.map((item) => item.value));
-    const selectedVisibleDocs = incomingDocs.filter((doc) => visibleValues.has(doc));
-    loadedRecordUnknownDocuments = incomingDocs.filter((doc) => !visibleValues.has(doc));
-    renderDocumentOptions(configuredDocumentOptions, selectedVisibleDocs);
+    loadedRecordUnknownDocuments = incomingDocs;
+    renderDocumentOptions(configuredDocumentOptions, data.estadoCarpeta ? [data.estadoCarpeta] : []);
+    setSelectedFolderStatusValue(data.estadoCarpeta || '');
+    syncFolderStatusVisibility(currentUser);
     resetFacturaForm();
     applyFacturaSnapshotToForm(data.factura);
     syncFacturaNumeroVisibility({ clearOnHide: false });
@@ -10393,8 +10538,8 @@ function resolveApiBase() {
     const port = String(window.location.port || '').trim();
     const isLocalHost = host === 'localhost' || host === '127.0.0.1';
 
-    if (isLocalHost && port !== '3000') {
-        return `http://${host}:3000/api`;
+    if (isLocalHost && port !== '3001') {
+        return `http://${host}:3001/api`;
     }
 
     // En internet (Nginx), la API debe resolverse por la misma origin en /api.
@@ -10416,11 +10561,11 @@ function resolveApiFallbackBases(primaryBase) {
     const isLocalHost = host === 'localhost' || host === '127.0.0.1';
 
     if (isLocalHost) {
-        appendCandidate(`http://${host}:3000/api`);
+        appendCandidate(`http://${host}:3001/api`);
         if (host === 'localhost') {
-            appendCandidate('http://127.0.0.1:3000/api');
+            appendCandidate('http://127.0.0.1:3001/api');
         } else if (host === '127.0.0.1') {
-            appendCandidate('http://localhost:3000/api');
+            appendCandidate('http://localhost:3001/api');
         }
     }
 
@@ -10457,6 +10602,15 @@ function sanitizeApiBaseOverride(overrideValue) {
         const overridePort = String(parsed.port || '').trim();
         const pagePort = String(window.location.port || '').trim();
 
+        if (pageIsLoopback && overrideIsLoopback && overridePort === '3000') {
+            try {
+                window.localStorage.removeItem(API_BASE_STORAGE);
+            } catch (storageError) {
+                // Ignorar errores de storage.
+            }
+            return '';
+        }
+
         // Si estamos en internet (host publico), nunca usar override local 127.0.0.1/localhost.
         if (!pageIsLoopback && overrideIsLoopback) {
             try {
@@ -10467,8 +10621,8 @@ function sanitizeApiBaseOverride(overrideValue) {
             return '';
         }
 
-        // Si estamos en internet por 80/443, evitar override duro hacia :3000 del mismo host.
-        if (!pageIsLoopback && pagePort !== '3000' && overrideHost === pageHost && overridePort === '3000') {
+        // Si estamos en internet por 80/443, evitar override duro hacia :3001 del mismo host.
+        if (!pageIsLoopback && pagePort !== '3001' && overrideHost === pageHost && overridePort === '3001') {
             try {
                 window.localStorage.removeItem(API_BASE_STORAGE);
             } catch (storageError) {
