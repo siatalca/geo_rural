@@ -8411,7 +8411,7 @@ app.put('/api/registros/:numIngreso/historial/:historyId', requireWriteAccess, r
     }
 });
 
-app.delete('/api/registros/:numIngreso/historial/:historyId', requireWriteAccess, requireSuper, async (req, res) => {
+app.delete('/api/registros/:numIngreso/historial/:historyId', requireWriteAccess, requireAdmin, async (req, res) => {
     const routeIngreso = normalizeText(decodeURIComponent(req.params.numIngreso));
     const parsedIngreso = parseNumIngreso(routeIngreso);
     if (!parsedIngreso) {
@@ -8430,8 +8430,8 @@ app.delete('/api/registros/:numIngreso/historial/:historyId', requireWriteAccess
     }
 
     const connection = await pool.getConnection();
-    const superName = req.authUser.nombre || req.authUser.username;
-    const superBranch = normalizeText(req.authUser.sucursal) || null;
+    const adminName = req.authUser.nombre || req.authUser.username;
+    const adminBranch = normalizeText(req.authUser.sucursal) || null;
 
     try {
         await connection.beginTransaction();
@@ -8489,7 +8489,7 @@ app.delete('/api/registros/:numIngreso/historial/:historyId', requireWriteAccess
                     updated_at = NOW()
                 WHERE id = ?
             `,
-            [updatedComment || null, superName, superBranch, registroId]
+            [updatedComment || null, adminName, adminBranch, registroId]
         );
 
         await connection.commit();

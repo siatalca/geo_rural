@@ -17,7 +17,7 @@ const DEFAULT_DOCUMENT_GROUP_TITLES = [
 const OPERATOR_LAST_DEST_EMAIL_STORAGE = 'geo_rural_last_invoice_destination_email';
 const SECRETARY_DAILY_ALERT_STORAGE_PREFIX = 'geo_rural_secretary_no_movement_seen_';
 const SECRETARY_NO_MOVEMENT_DAYS = 8;
-const APP_BUILD = '2026-06-12-01';
+const APP_BUILD = '2026-06-12-03';
 const MAIL_SEND_PROGRESS_MIN_MS = 1600;
 const MAIL_SEND_PROGRESS_FINAL_MS = 900;
 const REQUESTED_INVOICES_PAGE_SIZE = 5;
@@ -739,6 +739,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         operatorDocAlertsBody: document.getElementById('operatorDocAlertsBody'),
         operatorDocAlertsMessage: document.getElementById('operatorDocAlertsMessage'),
         operatorDocAlertsRefreshBtn: document.getElementById('operatorDocAlertsRefreshBtn'),
+        operatorDocAlertsExportBtn: document.getElementById('operatorDocAlertsExportBtn'),
         operatorDocAlertsClearBtn: document.getElementById('operatorDocAlertsClearBtn'),
         operatorDocAlertsCloseBtn: document.getElementById('operatorDocAlertsCloseBtn'),
         dateRangeModalOverlay: document.getElementById('dateRangeModalOverlay'),
@@ -1117,6 +1118,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (ui.operatorDocAlertsRefreshBtn) {
         ui.operatorDocAlertsRefreshBtn.addEventListener('click', () => void refreshOperatorDocumentAlerts({ silent: false }));
+    }
+    if (ui.operatorDocAlertsExportBtn) {
+        ui.operatorDocAlertsExportBtn.addEventListener('click', () => void handleOperatorDocumentAlertsExportWorkbook());
     }
     if (ui.operatorDocAlertsClearBtn) {
         ui.operatorDocAlertsClearBtn.addEventListener('click', () => void handleClearOperatorDocumentAlertFilters());
@@ -4953,6 +4957,16 @@ function renderOperatorDocumentAlertFilters() {
     });
 }
 
+function updateOperatorDocumentAlertsExportButtonState(records = operatorDocumentAlerts) {
+    if (!ui?.operatorDocAlertsExportBtn) {
+        return;
+    }
+
+    const hasResults = Array.isArray(records) && records.length > 0;
+    ui.operatorDocAlertsExportBtn.classList.toggle('hidden', !hasResults);
+    ui.operatorDocAlertsExportBtn.disabled = !hasResults;
+}
+
 function getSelectedOperatorFolderStatusFilters() {
     if (!ui?.operatorDocAlertsFilters) {
         return [];
@@ -4978,13 +4992,15 @@ function renderOperatorDocumentAlertsRows(records) {
         return;
     }
 
+    const rows = Array.isArray(records) ? records : [];
+    updateOperatorDocumentAlertsExportButtonState(rows);
     ui.operatorDocAlertsBody.innerHTML = '';
-    if (!Array.isArray(records) || records.length === 0) {
+    if (rows.length === 0) {
         ui.operatorDocAlertsBody.innerHTML = '<tr><td colspan="8">Sin carpetas para mostrar.</td></tr>';
         return;
     }
 
-    records.forEach((item) => {
+    rows.forEach((item) => {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${escapeHtml(item?.numIngreso || '')}</td>
@@ -5035,6 +5051,161 @@ async function handleLoadOperatorFolderStatusRecord(numIngreso, buttonNode = nul
     } finally {
         if (buttonNode) {
             buttonNode.disabled = false;
+        }
+    }
+}
+
+function buildOperatorDocumentAlertsExportRows(records) {
+    if (!Array.isArray(records)) {
+        return [];
+    }
+
+    return records.map((item, index) => [
+        String(index + 1),
+        normalizeText(item?.numIngreso),
+        formatDateTime(item?.updatedAt || item?.createdAt || ''),
+        formatDateTime(item?.createdAt || ''),
+        normalizeText(item?.nombre),
+        normalizeText(item?.rut),
+        normalizeText(item?.sucursal),
+        normalizeText(item?.region),
+        normalizeText(item?.comuna),
+        getDocumentOptionLabelByValue(item?.estadoCarpeta) || normalizeText(item?.estadoCarpeta) || 'Sin estado'
+    ]);
+}
+
+function buildOperatorDocumentAlertsExportFileName(extension = 'xlsx') {
+    const safeExtension = String(extension || '').trim().toLowerCase() === 'xls' ? 'xls' : 'xlsx';
+    const selectedStatuses = getSelectedOperatorFolderStatusFilters();
+    const statusPart = selectedStatuses.length > 0 ? selectedStatuses.slice(0, 4).join('_') : 'todos';
+    const normalizedStatusPart = normalizeDocumentOptionValue(statusPart).slice(0, 80) || 'todos';
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    return `carpetas_estado_sag_${normalizedStatusPart}_${stamp}.${safeExtension}`;
+}
+
+async function exportOperatorDocumentAlertsAsXlsxTable(records) {
+    const excelJsLib = window && window.ExcelJS;
+    if (!excelJsLib || typeof excelJsLib.Workbook !== 'function') {
+        throw new Error('No se pudo cargar la libreria de tabla Excel.');
+    }
+
+    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA REGISTRO', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO CARPETA'];
+    const rows = buildOperatorDocumentAlertsExportRows(records).map((rowValues) => rowValues.map((value) => String(value ?? '')));
+    const columnWidths = [6, 18, 22, 22, 40, 16, 22, 22, 22, 32];
+
+    const workbook = new excelJsLib.Workbook();
+    workbook.creator = 'Geo Rural';
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet('Carpetas SAG', {
+        views: [{ state: 'frozen', ySplit: 1 }]
+    });
+
+    worksheet.columns = headers.map((name, index) => ({
+        header: name,
+        key: `c${index + 1}`,
+        width: columnWidths[index]
+    }));
+
+    worksheet.addTable({
+        name: 'TablaCarpetasSAG',
+        ref: 'A1',
+        headerRow: true,
+        totalsRow: false,
+        style: {
+            theme: 'TableStyleMedium2',
+            showRowStripes: true
+        },
+        columns: headers.map((name) => ({ name })),
+        rows
+    });
+
+    worksheet.eachRow((row, rowNumber) => {
+        row.eachCell((cell) => {
+            cell.alignment = { vertical: 'middle' };
+            if (rowNumber === 1) {
+                cell.font = { bold: true };
+            }
+        });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    downloadBlobFile(blob, buildOperatorDocumentAlertsExportFileName('xlsx'));
+}
+
+function exportOperatorDocumentAlertsAsXls(records) {
+    const xlsxLib = window && window.XLSX;
+    if (!xlsxLib || !xlsxLib.utils || typeof xlsxLib.writeFile !== 'function') {
+        throw new Error('No se pudo cargar la libreria de exportacion Excel.');
+    }
+
+    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA REGISTRO', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO CARPETA'];
+    const rows = buildOperatorDocumentAlertsExportRows(records);
+    const worksheetData = [headers, ...rows];
+    const worksheet = xlsxLib.utils.aoa_to_sheet(worksheetData);
+
+    worksheet['!cols'] = [
+        { wch: 6 },
+        { wch: 18 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 40 },
+        { wch: 16 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 32 }
+    ];
+
+    const lastCol = xlsxLib.utils.encode_col(headers.length - 1);
+    const lastRow = rows.length + 1;
+    worksheet['!autofilter'] = { ref: `A1:${lastCol}${lastRow}` };
+
+    const workbook = xlsxLib.utils.book_new();
+    xlsxLib.utils.book_append_sheet(workbook, worksheet, 'Carpetas SAG');
+    xlsxLib.writeFile(workbook, buildOperatorDocumentAlertsExportFileName('xls'), {
+        bookType: 'xls',
+        compression: true
+    });
+}
+
+async function handleOperatorDocumentAlertsExportWorkbook() {
+    const records = Array.isArray(operatorDocumentAlerts) ? operatorDocumentAlerts : [];
+    if (records.length === 0) {
+        setFormMessage(ui?.operatorDocAlertsMessage, 'No hay carpetas filtradas para exportar.', 'error');
+        return;
+    }
+
+    const exportButton = ui?.operatorDocAlertsExportBtn;
+    const originalText = exportButton ? exportButton.textContent : '';
+    if (exportButton) {
+        exportButton.disabled = true;
+        exportButton.textContent = 'EXPORTANDO...';
+    }
+
+    try {
+        const canExportAsExcelTable = Boolean(window && window.ExcelJS && typeof window.ExcelJS.Workbook === 'function');
+        if (canExportAsExcelTable) {
+            await exportOperatorDocumentAlertsAsXlsxTable(records);
+        } else {
+            exportOperatorDocumentAlertsAsXls(records);
+        }
+        setFormMessage(ui?.operatorDocAlertsMessage, `Se exportaron ${records.length} carpetas filtradas en Excel.`, 'success');
+    } catch (error) {
+        const reason = normalizeText(error?.message || '');
+        console.error('[Excel Export] Error al exportar carpetas por estado:', error);
+        setFormMessage(
+            ui?.operatorDocAlertsMessage,
+            reason ? `No fue posible generar el archivo Excel: ${reason}` : 'No fue posible generar el archivo Excel.',
+            'error'
+        );
+    } finally {
+        if (exportButton) {
+            exportButton.textContent = originalText || 'EXPORTAR EXCEL';
+            updateOperatorDocumentAlertsExportButtonState(records);
         }
     }
 }
@@ -10193,7 +10364,7 @@ function openHistoryEditModal(historyItem) {
     ui.historyEditFecha.value = localDateTime;
     ui.historyEditComentario.value = formatComentarioTitleCase(String(historyItem?.comentario || '')).trim();
     if (ui.historyEditDeleteBtn) {
-        const showDeleteBtn = isSuperUser(currentUser);
+        const showDeleteBtn = canEditHistoryComments(currentUser);
         ui.historyEditDeleteBtn.classList.toggle('hidden', !showDeleteBtn);
     }
     setFormMessage(ui?.historyEditMessage, '', '');
@@ -10258,8 +10429,8 @@ async function handleHistoryEditSubmit(event) {
 }
 
 async function handleHistoryDeleteClick() {
-    if (!isSuperUser(currentUser)) {
-        setFormMessage(ui?.historyEditMessage, 'Solo SUPER puede eliminar comentarios del historial.', 'error');
+    if (!canEditHistoryComments(currentUser)) {
+        setFormMessage(ui?.historyEditMessage, 'Solo ADMIN o SUPER pueden eliminar comentarios del historial.', 'error');
         return;
     }
 
