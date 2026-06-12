@@ -3263,6 +3263,69 @@ function normalizeMailHtmlContent(value) {
     return String(value || '').replace(/\u0000/g, '').trim();
 }
 
+function getMailTransportErrorDetails(error, fallbackMessage) {
+    const code = normalizeText(error?.code).toUpperCase();
+    const command = normalizeText(error?.command).toUpperCase();
+    const responseCode = Number(error?.responseCode || 0);
+    const rawMessage = normalizeText(error?.message);
+    const responseMessage = normalizeText(error?.response || '');
+
+    if (code === 'EAUTH' || responseCode === 535 || responseCode === 534) {
+        return {
+            status: 502,
+            code: 'SMTP_AUTH_FAILED',
+            message:
+                'El servidor SMTP rechazo el usuario o la clave. Revisa la configuracion de correo del superusuario.'
+        };
+    }
+
+    if (code === 'ETIMEDOUT' || command === 'CONN') {
+        return {
+            status: 504,
+            code: 'SMTP_TIMEOUT',
+            message:
+                'No hubo respuesta del servidor SMTP. Revisa host, puerto, seguridad SSL/TLS o conexion a internet.'
+        };
+    }
+
+    if (['ECONNECTION', 'ESOCKET', 'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH'].includes(code)) {
+        return {
+            status: 503,
+            code: 'SMTP_CONNECTION_FAILED',
+            message:
+                'No fue posible conectar con el servidor SMTP. Revisa host, puerto y tipo de seguridad configurados.'
+        };
+    }
+
+    if (code === 'EENVELOPE' || responseCode === 550 || responseCode === 553 || responseCode === 554) {
+        return {
+            status: 502,
+            code: 'SMTP_REJECTED',
+            message:
+                'El servidor SMTP rechazo el remitente o destinatario. Revisa el correo configurado y el correo destino.'
+        };
+    }
+
+    const publicMessage =
+        rawMessage && !/password|pass|clave|secret|token/i.test(rawMessage)
+            ? `No fue posible enviar el correo: ${rawMessage}`
+            : fallbackMessage;
+
+    return {
+        status: 502,
+        code: code || 'SMTP_SEND_FAILED',
+        message: responseMessage && responseMessage.length <= 180 ? `${publicMessage} (${responseMessage})` : publicMessage
+    };
+}
+
+function sendMailTransportErrorResponse(res, error, fallbackMessage) {
+    const details = getMailTransportErrorDetails(error, fallbackMessage);
+    return res.status(details.status).json({
+        message: details.message,
+        code: details.code
+    });
+}
+
 function getSmtpTransporter(config) {
     const runtimeConfig = toSmtpRuntimeConfig(config);
     if (!isSmtpConfigReady(runtimeConfig)) {
@@ -5820,7 +5883,7 @@ app.post('/api/cotizaciones/enviar', async (req, res) => {
         });
     } catch (error) {
         console.error('Error enviando cotizacion por correo:', error);
-        return res.status(500).json({ message: 'No fue posible enviar la cotizacion por correo.' });
+        return sendMailTransportErrorResponse(res, error, 'No fue posible enviar la cotizacion por correo.');
     }
 });
 
@@ -6326,7 +6389,7 @@ app.post('/api/facturas/correo/enviar', requireWriteAccess, async (req, res) => 
         });
     } catch (error) {
         console.error('Error enviando factura por correo:', error);
-        return res.status(500).json({ message: 'No fue posible enviar la factura por correo.' });
+        return sendMailTransportErrorResponse(res, error, 'No fue posible enviar la factura por correo.');
     }
 });
 

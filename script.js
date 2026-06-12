@@ -17,7 +17,7 @@ const DEFAULT_DOCUMENT_GROUP_TITLES = [
 const OPERATOR_LAST_DEST_EMAIL_STORAGE = 'geo_rural_last_invoice_destination_email';
 const SECRETARY_DAILY_ALERT_STORAGE_PREFIX = 'geo_rural_secretary_no_movement_seen_';
 const SECRETARY_NO_MOVEMENT_DAYS = 8;
-const APP_BUILD = '2026-04-26-02';
+const APP_BUILD = '2026-06-12-01';
 const MAIL_SEND_PROGRESS_MIN_MS = 1600;
 const MAIL_SEND_PROGRESS_FINAL_MS = 900;
 const REQUESTED_INVOICES_PAGE_SIZE = 5;
@@ -9827,7 +9827,7 @@ function isWriteApiKeyAuthFailure(status, code, message) {
 }
 
 async function apiRequest(path, options = {}) {
-    const { skipAuthRedirect = false, skipPasswordRedirect = false, ...fetchOptions } = options;
+    const { skipAuthRedirect = false, skipPasswordRedirect = false, retryWriteApiKey = true, ...fetchOptions } = options;
 
     const headers = {
         'Content-Type': 'application/json',
@@ -9879,6 +9879,16 @@ async function apiRequest(path, options = {}) {
         const message = payload.message || 'Ocurrio un error de conexion con el servidor.';
         const responseCode = payload.code || '';
         const isWriteAuthFailure = isWriteApiKeyAuthFailure(response.status, responseCode, message);
+        if (isWriteAuthFailure && retryWriteApiKey) {
+            const refreshed = await refreshWriteApiKeyFromSession();
+            if (refreshed) {
+                return apiRequest(path, {
+                    ...options,
+                    retryWriteApiKey: false
+                });
+            }
+        }
+
         if (response.status === 403 && payload.code === 'PASSWORD_CHANGE_REQUIRED' && !skipPasswordRedirect) {
             if (currentUser) {
                 currentUser.mustChangePassword = true;
@@ -9899,6 +9909,48 @@ async function apiRequest(path, options = {}) {
     }
 
     return payload;
+}
+
+async function refreshWriteApiKeyFromSession() {
+    const authToken = getAuthToken();
+    if (!authToken) {
+        return false;
+    }
+
+    const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`
+    };
+    const config = {
+        method: 'GET',
+        credentials: 'include',
+        headers
+    };
+    const apiBasesToTry = [API_BASE, ...API_BASE_FALLBACKS.filter((base) => base !== API_BASE)];
+    let response = null;
+
+    for (const base of apiBasesToTry) {
+        try {
+            response = await fetch(`${base}/auth/me`, config);
+            API_BASE = base;
+            break;
+        } catch (error) {
+            // Se prueba con el siguiente endpoint candidato.
+        }
+    }
+
+    if (!response || !response.ok) {
+        return false;
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    const nextApiKey = String(payload?.apiWriteKey || '').trim();
+    if (!nextApiKey) {
+        return false;
+    }
+
+    setApiKey(nextApiKey);
+    return true;
 }
 
 async function loadNextIngreso(numIngresoInput, messageElement) {
