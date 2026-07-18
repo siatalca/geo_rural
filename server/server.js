@@ -8689,7 +8689,7 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
             return res.status(400).json({ message: 'La fecha DESDE no puede ser mayor que HASTA.' });
         }
 
-        const where = ["estado_carpeta IS NOT NULL", "TRIM(estado_carpeta) <> ''"];
+        const where = [];
         const values = [];
         if (estados.length > 0) {
             where.push(`estado_carpeta IN (${estados.map(() => '?').join(', ')})`);
@@ -8725,7 +8725,7 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
                     created_at,
                     updated_at
                 FROM registros
-                WHERE ${where.join(' AND ')}
+                ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
                 ORDER BY updated_at DESC, id DESC
                 LIMIT 500
             `,
