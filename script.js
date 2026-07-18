@@ -1566,7 +1566,6 @@ async function handleLoginSubmit(event) {
             throw new Error('Respuesta de login invalida.');
         }
 
-        setAuthToken(result.token || '');
         setApiKey(result.apiWriteKey || '');
         ui.loginForm.reset();
         setFormMessage(ui.loginMessage, '', '');
@@ -1606,7 +1605,6 @@ async function handleGuestLogin() {
             throw new Error('Respuesta de login invitado invalida.');
         }
 
-        setAuthToken(result.token || '');
         setApiKey(result.apiWriteKey || '');
         ui.loginForm.reset();
         setFormMessage(ui.loginMessage, '', '');
@@ -1624,16 +1622,13 @@ async function handleGuestLogin() {
 }
 
 async function handleLogoutClick() {
-    const authToken = getAuthToken();
-    if (authToken) {
-        try {
-            await apiRequest('/auth/logout', {
-                method: 'POST',
-                skipAuthRedirect: true
-            });
-        } catch (error) {
-            // Ignorar errores de red/autorizacion al cerrar sesion localmente.
-        }
+    try {
+        await apiRequest('/auth/logout', {
+            method: 'POST',
+            skipAuthRedirect: true
+        });
+    } catch (error) {
+        // Ignorar errores de red/autorizacion al cerrar sesion localmente.
     }
 
     clearAuthSession();
@@ -1646,13 +1641,7 @@ async function handleLogoutClick() {
 }
 
 async function bootstrapSession() {
-    const token = getAuthToken();
-    if (!token) {
-        clearAuthSession();
-        showAuthCard('Inicia sesion para usar el sistema.');
-        return;
-    }
-
+    clearLegacyAuthTokenStorage();
     try {
         const data = await apiRequest('/auth/me', { skipAuthRedirect: true });
         if (!data.user) {
@@ -10111,11 +10100,6 @@ async function apiRequest(path, options = {}) {
         headers['X-API-Key'] = apiKey;
     }
 
-    const authToken = getAuthToken();
-    if (authToken) {
-        headers.Authorization = `Bearer ${authToken}`;
-    }
-
     const config = {
         method: fetchOptions.method || 'GET',
         ...fetchOptions,
@@ -10184,14 +10168,8 @@ async function apiRequest(path, options = {}) {
 }
 
 async function refreshWriteApiKeyFromSession() {
-    const authToken = getAuthToken();
-    if (!authToken) {
-        return false;
-    }
-
     const headers = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authToken}`
+        'Content-Type': 'application/json'
     };
     const config = {
         method: 'GET',
@@ -11010,52 +10988,25 @@ function setApiKey(value) {
     }
 }
 
-function getAuthToken() {
-    if (authTokenMemory) {
-        return authTokenMemory;
-    }
-
-    try {
-        const sessionValue = (window.sessionStorage.getItem(AUTH_TOKEN_STORAGE) || '').trim();
-        if (sessionValue) {
-            authTokenMemory = sessionValue;
-            return authTokenMemory;
-        }
-
-        const legacyValue = (window.localStorage.getItem(AUTH_TOKEN_STORAGE) || '').trim();
-        if (legacyValue) {
-            window.sessionStorage.setItem(AUTH_TOKEN_STORAGE, legacyValue);
-            window.localStorage.removeItem(AUTH_TOKEN_STORAGE);
-            authTokenMemory = legacyValue;
-            return authTokenMemory;
-        }
-    } catch (error) {
-        // Si el almacenamiento no esta disponible, se mantiene solo en memoria.
-    }
-
-    return '';
-}
-
-function setAuthToken(token) {
-    authTokenMemory = String(token || '').trim();
-    try {
-        if (authTokenMemory) {
-            window.sessionStorage.setItem(AUTH_TOKEN_STORAGE, authTokenMemory);
-        } else {
-            window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
-            window.localStorage.removeItem(AUTH_TOKEN_STORAGE);
-        }
-    } catch (error) {
-        // Si sessionStorage no esta disponible, se mantiene solo en memoria.
-    }
-}
-
-function clearAuthSession() {
+function clearLegacyAuthTokenStorage() {
     authTokenMemory = '';
-    apiKeyMemory = '';
     try {
         window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
         window.localStorage.removeItem(AUTH_TOKEN_STORAGE);
+    } catch (error) {
+        // Ignorar errores de almacenamiento local.
+    }
+}
+
+function setAuthToken(token) {
+    // Compatibilidad con llamadas antiguas: ya no se almacena token en JS.
+    clearLegacyAuthTokenStorage();
+}
+
+function clearAuthSession() {
+    apiKeyMemory = '';
+    clearLegacyAuthTokenStorage();
+    try {
         window.sessionStorage.removeItem(API_KEY_STORAGE);
         window.localStorage.removeItem(API_KEY_STORAGE);
     } catch (error) {

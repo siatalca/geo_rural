@@ -92,6 +92,10 @@ const APP_URL = normalizeText(process.env.APP_URL);
 const API_WRITE_KEY = normalizeText(process.env.API_WRITE_KEY);
 const IS_LOCALHOST_BIND = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1';
 const AUTH_SESSION_HOURS = parsePositiveInt(process.env.AUTH_SESSION_HOURS, 12);
+const AUTH_SESSION_ABSOLUTE_HOURS = Math.max(
+    AUTH_SESSION_HOURS,
+    parsePositiveInt(process.env.AUTH_SESSION_ABSOLUTE_HOURS, AUTH_SESSION_HOURS)
+);
 const LOGIN_MAX_ATTEMPTS = parsePositiveInt(process.env.LOGIN_MAX_ATTEMPTS, 5);
 const LOGIN_WINDOW_MINUTES = parsePositiveInt(process.env.LOGIN_WINDOW_MINUTES, 15);
 const LOGIN_LOCK_MINUTES = parsePositiveInt(process.env.LOGIN_LOCK_MINUTES, 2);
@@ -355,7 +359,7 @@ app.use(
             return callback(null, false);
         },
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'X-API-Key'],
         credentials: true,
         maxAge: 600
     })
@@ -1899,12 +1903,6 @@ function clearSessionCookie(res) {
 }
 
 function extractBearerToken(req) {
-    const header = normalizeText(req.get('authorization'));
-    const match = /^Bearer\s+(.+)$/i.exec(header);
-    if (match) {
-        return normalizeText(match[1]);
-    }
-
     const cookies = parseCookies(req);
     return normalizeText(cookies[SESSION_COOKIE_NAME]);
 }
@@ -4258,7 +4256,7 @@ async function cleanupExpiredSessionsIfNeeded(force = false) {
         return;
     }
 
-    await pool.query('DELETE FROM sesiones WHERE expires_at <= NOW() OR revoked_at IS NOT NULL');
+    await pool.query('DELETE FROM sesiones WHERE expires_at <= NOW() OR absolute_expires_at <= NOW() OR revoked_at IS NOT NULL');
     lastSessionCleanupAt = now;
 }
 
@@ -4280,6 +4278,7 @@ async function findSessionUserByToken(token) {
             WHERE s.token_hash = ?
               AND s.revoked_at IS NULL
               AND s.expires_at > NOW()
+              AND s.absolute_expires_at > NOW()
             LIMIT 1
         `,
         [tokenHash]
@@ -4290,7 +4289,7 @@ async function findSessionUserByToken(token) {
     }
 
     await pool.execute(
-        'UPDATE sesiones SET last_used_at = NOW(), expires_at = DATE_ADD(NOW(), INTERVAL ? HOUR) WHERE id = ?',
+        'UPDATE sesiones SET last_used_at = NOW(), expires_at = LEAST(DATE_ADD(NOW(), INTERVAL ? HOUR), absolute_expires_at) WHERE id = ?',
         [AUTH_SESSION_HOURS, rows[0].session_id]
     );
 
@@ -4522,6 +4521,7 @@ async function createAuthTables() {
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_used_at DATETIME NULL DEFAULT NULL,
             expires_at DATETIME NOT NULL,
+            absolute_expires_at DATETIME NOT NULL,
             revoked_at DATETIME NULL DEFAULT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY uq_sesiones_token_hash (token_hash),
@@ -4531,6 +4531,16 @@ async function createAuthTables() {
                 ON DELETE CASCADE
         )
     `);
+    await ensureColumn(
+        'sesiones',
+        'absolute_expires_at',
+        '`absolute_expires_at` DATETIME NULL AFTER expires_at'
+    );
+    await pool.query('UPDATE sesiones SET absolute_expires_at = expires_at WHERE absolute_expires_at IS NULL OR absolute_expires_at < expires_at');
+    const [absoluteExpiryColumns] = await pool.query("SHOW COLUMNS FROM sesiones LIKE 'absolute_expires_at'");
+    if (absoluteExpiryColumns.length > 0 && String(absoluteExpiryColumns[0].Null || '').toUpperCase() === 'YES') {
+        await pool.query('ALTER TABLE sesiones MODIFY COLUMN absolute_expires_at DATETIME NOT NULL');
+    }
 }
 
 async function createHistoryTable() {
@@ -5578,10 +5588,16 @@ app.post('/api/auth/login', async (req, res) => {
         const token = generateSessionToken();
         await pool.execute(
             `
-                INSERT INTO sesiones (user_id, token_hash, expires_at, last_used_at)
-                VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR), NOW())
+                INSERT INTO sesiones (user_id, token_hash, expires_at, absolute_expires_at, last_used_at)
+                VALUES (
+                    ?,
+                    ?,
+                    DATE_ADD(NOW(), INTERVAL ? HOUR),
+                    DATE_ADD(NOW(), INTERVAL ? HOUR),
+                    NOW()
+                )
             `,
-            [rows[0].user_id, hashToken(token), AUTH_SESSION_HOURS]
+            [rows[0].user_id, hashToken(token), AUTH_SESSION_HOURS, AUTH_SESSION_ABSOLUTE_HOURS]
         );
 
         setSessionCookie(res, token);
@@ -5589,8 +5605,8 @@ app.post('/api/auth/login', async (req, res) => {
 
         const authUser = formatAuthUser(rows[0]);
         const responsePayload = {
-            token,
             expiresInHours: AUTH_SESSION_HOURS,
+            absoluteExpiresInHours: AUTH_SESSION_ABSOLUTE_HOURS,
             user: authUser
         };
 
@@ -5618,10 +5634,16 @@ app.post('/api/auth/guest', async (req, res) => {
         const token = generateSessionToken();
         await pool.execute(
             `
-                INSERT INTO sesiones (user_id, token_hash, expires_at, last_used_at)
-                VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR), NOW())
+                INSERT INTO sesiones (user_id, token_hash, expires_at, absolute_expires_at, last_used_at)
+                VALUES (
+                    ?,
+                    ?,
+                    DATE_ADD(NOW(), INTERVAL ? HOUR),
+                    DATE_ADD(NOW(), INTERVAL ? HOUR),
+                    NOW()
+                )
             `,
-            [guestUser.user_id, hashToken(token), AUTH_SESSION_HOURS]
+            [guestUser.user_id, hashToken(token), AUTH_SESSION_HOURS, AUTH_SESSION_ABSOLUTE_HOURS]
         );
 
         setSessionCookie(res, token);
@@ -5629,8 +5651,8 @@ app.post('/api/auth/guest', async (req, res) => {
 
         const guestAuthUser = formatAuthUser(guestUser);
         return res.json({
-            token,
             expiresInHours: AUTH_SESSION_HOURS,
+            absoluteExpiresInHours: AUTH_SESSION_ABSOLUTE_HOURS,
             user: guestAuthUser
         });
     } catch (error) {
