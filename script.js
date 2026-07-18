@@ -735,6 +735,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         secretaryNoMovementMessage: document.getElementById('secretaryNoMovementMessage'),
         secretaryNoMovementCloseBtn: document.getElementById('secretaryNoMovementCloseBtn'),
         operatorDocAlertsOverlay: document.getElementById('operatorDocAlertsOverlay'),
+        operatorDocAlertsFilterForm: document.getElementById('operatorDocAlertsFilterForm'),
+        operatorDocAlertsRegion: document.getElementById('operatorDocAlertsRegion'),
+        operatorDocAlertsFrom: document.getElementById('operatorDocAlertsFrom'),
+        operatorDocAlertsTo: document.getElementById('operatorDocAlertsTo'),
         operatorDocAlertsFilters: document.getElementById('operatorDocAlertsFilters'),
         operatorDocAlertsBody: document.getElementById('operatorDocAlertsBody'),
         operatorDocAlertsMessage: document.getElementById('operatorDocAlertsMessage'),
@@ -793,6 +797,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     populateComunas(ui.dateRangeComuna, '', '', 'TODAS');
     populateRegiones(ui.secretaryNoMovementFilterRegion, 'TODAS');
     populateComunas(ui.secretaryNoMovementFilterComuna, '', '', 'TODAS');
+    populateRegiones(ui.operatorDocAlertsRegion, 'TODAS');
     populateSecretaryNoMovementBranchFilter([]);
     initializeSecretariaInvoiceDetailLocationSelectors();
     renderHistory([]);
@@ -1116,6 +1121,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (ui.operatorDocAlertsCloseBtn) {
         ui.operatorDocAlertsCloseBtn.addEventListener('click', closeOperatorDocumentAlertsModal);
     }
+    if (ui.operatorDocAlertsFilterForm) {
+        ui.operatorDocAlertsFilterForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            void refreshOperatorDocumentAlerts({ silent: false });
+        });
+    }
+    [ui.operatorDocAlertsRegion, ui.operatorDocAlertsFrom, ui.operatorDocAlertsTo].forEach((control) => {
+        if (control) {
+            control.addEventListener('change', () => void refreshOperatorDocumentAlerts({ silent: false }));
+        }
+    });
     if (ui.operatorDocAlertsRefreshBtn) {
         ui.operatorDocAlertsRefreshBtn.addEventListener('click', () => void refreshOperatorDocumentAlerts({ silent: false }));
     }
@@ -4413,6 +4429,7 @@ function buildDateRangeExportRows(registros) {
         String(index + 1),
         formatNumIngresoForDateRangeExport(registro?.numIngreso, registro?.region),
         formatDateTime(registro?.createdAt),
+        normalizeText(registro?.numLotes),
         normalizeText(registro?.nombre),
         normalizeText(registro?.rut),
         normalizeText(registro?.rol),
@@ -4421,7 +4438,8 @@ function buildDateRangeExportRows(registros) {
         normalizeText(registro?.region),
         normalizeText(registro?.comuna),
         normalizeText(registro?.sucursal),
-        formatEstadoForExport(registro?.estado)
+        formatEstadoForExport(registro?.estado),
+        getDocumentOptionLabelByValue(registro?.estadoCarpeta) || normalizeText(registro?.estadoCarpeta) || 'Sin estado'
     ]);
 }
 
@@ -4474,9 +4492,9 @@ async function exportDateRangeWorkbookAsXlsxTable(registros) {
         throw new Error('No se pudo cargar la libreria de tabla Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'FECHA REGISTRO', 'NOMBRE', 'RUT', 'ROL', 'TELEFONO', 'CORREO', 'REGION', 'COMUNA', 'SUCURSAL', 'ESTADO'];
+    const headers = ['#', 'NRO INGRESO', 'FECHA INGRESO', 'NRO DE LOTES', 'NOMBRE', 'RUT', 'ROL', 'TELEFONO', 'CORREO', 'REGION', 'COMUNA', 'SUCURSAL', 'ESTADO FACTURA', 'ESTADO CARPETA'];
     const rows = buildDateRangeExportRows(registros).map((rowValues) => rowValues.map((value) => String(value ?? '')));
-    const columnWidths = [6, 18, 20, 40, 16, 16, 15, 35, 20, 20, 20, 14];
+    const columnWidths = [6, 18, 20, 14, 40, 16, 16, 15, 35, 20, 20, 20, 18, 32];
 
     const workbook = new excelJsLib.Workbook();
     workbook.creator = 'Geo Rural';
@@ -4526,7 +4544,7 @@ function exportDateRangeWorkbookAsXls(registros) {
         throw new Error('No se pudo cargar la libreria de exportacion Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'FECHA REGISTRO', 'NOMBRE', 'RUT', 'ROL', 'TELEFONO', 'CORREO', 'REGION', 'COMUNA', 'SUCURSAL', 'ESTADO'];
+    const headers = ['#', 'NRO INGRESO', 'FECHA INGRESO', 'NRO DE LOTES', 'NOMBRE', 'RUT', 'ROL', 'TELEFONO', 'CORREO', 'REGION', 'COMUNA', 'SUCURSAL', 'ESTADO FACTURA', 'ESTADO CARPETA'];
     const rows = buildDateRangeExportRows(registros);
     const worksheetData = [headers, ...rows];
     const worksheet = xlsxLib.utils.aoa_to_sheet(worksheetData);
@@ -4535,6 +4553,7 @@ function exportDateRangeWorkbookAsXls(registros) {
         { wch: 6 },
         { wch: 18 },
         { wch: 20 },
+        { wch: 14 },
         { wch: 40 },
         { wch: 16 },
         { wch: 16 },
@@ -4543,7 +4562,8 @@ function exportDateRangeWorkbookAsXls(registros) {
         { wch: 20 },
         { wch: 20 },
         { wch: 20 },
-        { wch: 14 }
+        { wch: 18 },
+        { wch: 32 }
     ];
 
     const lastCol = xlsxLib.utils.encode_col(headers.length - 1);
@@ -4885,11 +4905,13 @@ function sanitizeOperatorDocumentAlertRecord(item) {
     return {
         id: Number.isInteger(recordId) && recordId > 0 ? recordId : 0,
         numIngreso: normalizeInvoiceText(item?.numIngreso, 20),
+        numLotes: normalizeInvoiceText(item?.numLotes, 20),
         nombre: normalizeInvoiceText(item?.nombre, 255),
         rut: normalizeInvoiceText(item?.rut, 20),
         sucursal: normalizeInvoiceText(item?.sucursal, 120),
         region: normalizeInvoiceText(item?.region, 120),
         comuna: normalizeInvoiceText(item?.comuna, 120),
+        estado: normalizeEstadoValue(item?.estado),
         estadoCarpeta: normalizeDocumentOptionValue(item?.estadoCarpeta),
         createdAt: String(item?.createdAt || ''),
         updatedAt: String(item?.updatedAt || item?.createdAt || '')
@@ -4941,6 +4963,29 @@ function renderOperatorDocumentAlertFilters() {
         return;
     }
 
+    const allLabelNode = document.createElement('label');
+    allLabelNode.className = 'doc-item operator-doc-alerts-filter-item';
+
+    const allInputNode = document.createElement('input');
+    allInputNode.type = 'checkbox';
+    allInputNode.name = 'operatorEstadoCarpetaTodos';
+    allInputNode.value = 'todos';
+    allInputNode.checked = getSelectedOperatorFolderStatusFilters().length === 0;
+    allInputNode.addEventListener('change', () => {
+        if (allInputNode.checked) {
+            ui.operatorDocAlertsFilters.querySelectorAll('input[name="operatorEstadoCarpetaFiltro"]').forEach((inputNode) => {
+                inputNode.checked = false;
+            });
+        } else if (getSelectedOperatorFolderStatusFilters().length === 0) {
+            allInputNode.checked = true;
+        }
+        void refreshOperatorDocumentAlerts({ silent: false });
+    });
+
+    allLabelNode.appendChild(allInputNode);
+    allLabelNode.appendChild(document.createTextNode(' TODOS'));
+    ui.operatorDocAlertsFilters.appendChild(allLabelNode);
+
     options.forEach((option) => {
         const labelNode = document.createElement('label');
         labelNode.className = 'doc-item operator-doc-alerts-filter-item';
@@ -4949,7 +4994,20 @@ function renderOperatorDocumentAlertFilters() {
         inputNode.type = 'checkbox';
         inputNode.name = 'operatorEstadoCarpetaFiltro';
         inputNode.value = option.value;
-        inputNode.addEventListener('change', () => void refreshOperatorDocumentAlerts({ silent: false }));
+        inputNode.addEventListener('change', () => {
+            if (inputNode.checked) {
+                const allStatusInput = ui.operatorDocAlertsFilters.querySelector('input[name="operatorEstadoCarpetaTodos"]');
+                if (allStatusInput) {
+                    allStatusInput.checked = false;
+                }
+            }
+            const anySelected = getSelectedOperatorFolderStatusFilters().length > 0;
+            const allStatusInput = ui.operatorDocAlertsFilters.querySelector('input[name="operatorEstadoCarpetaTodos"]');
+            if (allStatusInput) {
+                allStatusInput.checked = !anySelected;
+            }
+            void refreshOperatorDocumentAlerts({ silent: false });
+        });
 
         labelNode.appendChild(inputNode);
         labelNode.appendChild(document.createTextNode(` ${option.label}`));
@@ -4982,6 +5040,19 @@ async function handleClearOperatorDocumentAlertFilters() {
         ui.operatorDocAlertsFilters.querySelectorAll('input[name="operatorEstadoCarpetaFiltro"]').forEach((inputNode) => {
             inputNode.checked = false;
         });
+        const allStatusInput = ui.operatorDocAlertsFilters.querySelector('input[name="operatorEstadoCarpetaTodos"]');
+        if (allStatusInput) {
+            allStatusInput.checked = true;
+        }
+    }
+    if (ui?.operatorDocAlertsRegion) {
+        ui.operatorDocAlertsRegion.value = '';
+    }
+    if (ui?.operatorDocAlertsFrom) {
+        ui.operatorDocAlertsFrom.value = '';
+    }
+    if (ui?.operatorDocAlertsTo) {
+        ui.operatorDocAlertsTo.value = '';
     }
 
     await refreshOperatorDocumentAlerts({ silent: false });
@@ -4996,7 +5067,7 @@ function renderOperatorDocumentAlertsRows(records) {
     updateOperatorDocumentAlertsExportButtonState(rows);
     ui.operatorDocAlertsBody.innerHTML = '';
     if (rows.length === 0) {
-        ui.operatorDocAlertsBody.innerHTML = '<tr><td colspan="8">Sin carpetas para mostrar.</td></tr>';
+        ui.operatorDocAlertsBody.innerHTML = '<tr><td colspan="11">Sin carpetas para mostrar.</td></tr>';
         return;
     }
 
@@ -5005,10 +5076,13 @@ function renderOperatorDocumentAlertsRows(records) {
         row.innerHTML = `
             <td>${escapeHtml(item?.numIngreso || '')}</td>
             <td>${escapeHtml(formatDateTime(item?.updatedAt || item?.createdAt || ''))}</td>
+            <td>${escapeHtml(formatDateTime(item?.createdAt || ''))}</td>
+            <td>${escapeHtml(item?.numLotes || '')}</td>
             <td>${escapeHtml(item?.nombre || '')}</td>
             <td>${escapeHtml(item?.rut || '')}</td>
             <td>${escapeHtml(item?.sucursal || '')}</td>
             <td>${escapeHtml([item?.region, item?.comuna].filter(Boolean).join(' / '))}</td>
+            <td>${escapeHtml(formatEstadoForExport(item?.estado))}</td>
             <td>${escapeHtml(getDocumentOptionLabelByValue(item?.estadoCarpeta) || item?.estadoCarpeta || 'Sin estado')}</td>
             <td></td>
         `;
@@ -5065,11 +5139,13 @@ function buildOperatorDocumentAlertsExportRows(records) {
         normalizeText(item?.numIngreso),
         formatDateTime(item?.updatedAt || item?.createdAt || ''),
         formatDateTime(item?.createdAt || ''),
+        normalizeText(item?.numLotes),
         normalizeText(item?.nombre),
         normalizeText(item?.rut),
         normalizeText(item?.sucursal),
         normalizeText(item?.region),
         normalizeText(item?.comuna),
+        formatEstadoForExport(item?.estado),
         getDocumentOptionLabelByValue(item?.estadoCarpeta) || normalizeText(item?.estadoCarpeta) || 'Sin estado'
     ]);
 }
@@ -5090,9 +5166,9 @@ async function exportOperatorDocumentAlertsAsXlsxTable(records) {
         throw new Error('No se pudo cargar la libreria de tabla Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA REGISTRO', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO CARPETA'];
+    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA INGRESO', 'NRO DE LOTES', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO FACTURA', 'ESTADO CARPETA'];
     const rows = buildOperatorDocumentAlertsExportRows(records).map((rowValues) => rowValues.map((value) => String(value ?? '')));
-    const columnWidths = [6, 18, 22, 22, 40, 16, 22, 22, 22, 32];
+    const columnWidths = [6, 18, 22, 22, 14, 40, 16, 22, 22, 22, 18, 32];
 
     const workbook = new excelJsLib.Workbook();
     workbook.creator = 'Geo Rural';
@@ -5142,7 +5218,7 @@ function exportOperatorDocumentAlertsAsXls(records) {
         throw new Error('No se pudo cargar la libreria de exportacion Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA REGISTRO', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO CARPETA'];
+    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA INGRESO', 'NRO DE LOTES', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO FACTURA', 'ESTADO CARPETA'];
     const rows = buildOperatorDocumentAlertsExportRows(records);
     const worksheetData = [headers, ...rows];
     const worksheet = xlsxLib.utils.aoa_to_sheet(worksheetData);
@@ -5152,11 +5228,13 @@ function exportOperatorDocumentAlertsAsXls(records) {
         { wch: 18 },
         { wch: 22 },
         { wch: 22 },
+        { wch: 14 },
         { wch: 40 },
         { wch: 16 },
         { wch: 22 },
         { wch: 22 },
         { wch: 22 },
+        { wch: 18 },
         { wch: 32 }
     ];
 
@@ -5242,8 +5320,31 @@ function openOperatorDocumentAlertsModal() {
 
 async function fetchOperatorDocumentAlerts() {
     const selectedStatuses = getSelectedOperatorFolderStatusFilters();
+    const region = String(ui?.operatorDocAlertsRegion?.value || '').trim();
+    const fechaDesde = String(ui?.operatorDocAlertsFrom?.value || '').trim();
+    const fechaHasta = String(ui?.operatorDocAlertsTo?.value || '').trim();
+
+    if (fechaDesde && !isValidDateInputValue(fechaDesde)) {
+        throw new Error('Ingresa una fecha DESDE valida.');
+    }
+    if (fechaHasta && !isValidDateInputValue(fechaHasta)) {
+        throw new Error('Ingresa una fecha HASTA valida.');
+    }
+    if (fechaDesde && fechaHasta && fechaDesde > fechaHasta) {
+        throw new Error('La fecha DESDE no puede ser mayor que HASTA.');
+    }
+
     const query = new URLSearchParams();
     selectedStatuses.forEach((estadoCarpeta) => query.append('estadoCarpeta', estadoCarpeta));
+    if (region) {
+        query.set('region', region);
+    }
+    if (fechaDesde) {
+        query.set('fechaDesde', fechaDesde);
+    }
+    if (fechaHasta) {
+        query.set('fechaHasta', fechaHasta);
+    }
     const suffix = query.toString() ? `?${query.toString()}` : '';
     const result = await apiRequest(`/registros/carpeta-estados${suffix}`);
     const records = Array.isArray(result?.registros) ? result.registros : [];

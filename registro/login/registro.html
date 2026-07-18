@@ -6,7 +6,7 @@
     <meta name="geo-rural-api-base" content="">
     <title>Formulario de Registro - Geo Rural</title>
     <link rel="icon" type="image/png" href="../../assets/img/logo.png">
-    <link rel="stylesheet" href="../../styles.css?v=20260408-15">
+    <link rel="stylesheet" href="../../styles.css?v=20260717-01">
 </head>
 <body>
     <div id="appTopPanels" class="app-top-panels hidden">
@@ -1086,7 +1086,25 @@
     <div id="operatorDocAlertsOverlay" class="modal-overlay hidden">
         <div class="modal-card operator-doc-alerts-modal-card" role="dialog" aria-modal="true" aria-labelledby="operatorDocAlertsTitle">
             <h3 id="operatorDocAlertsTitle">CARPETAS POR ESTADO SAG</h3>
-            <p class="helper-text">Selecciona uno o mas estados para filtrar las carpetas del servicio agronomo ganadero.</p>
+            <p class="helper-text">Selecciona estados, region y fecha de ingreso para filtrar las carpetas del servicio agronomo ganadero.</p>
+            <form id="operatorDocAlertsFilterForm" class="date-range-form" autocomplete="off">
+                <div class="form-row form-row-triple">
+                    <div class="form-group">
+                        <label for="operatorDocAlertsRegion">REGION</label>
+                        <select id="operatorDocAlertsRegion">
+                            <option value="">TODAS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="operatorDocAlertsFrom">FECHA INGRESO DESDE</label>
+                        <input type="date" id="operatorDocAlertsFrom">
+                    </div>
+                    <div class="form-group">
+                        <label for="operatorDocAlertsTo">FECHA INGRESO HASTA</label>
+                        <input type="date" id="operatorDocAlertsTo">
+                    </div>
+                </div>
+            </form>
             <div id="operatorDocAlertsFilters" class="operator-doc-alerts-filters" role="group" aria-label="Filtros por estado de carpeta"></div>
             <div class="history-wrapper operator-doc-alerts-table-wrapper">
                 <table class="history-table">
@@ -1094,17 +1112,20 @@
                         <tr>
                             <th>NRO INGRESO</th>
                             <th>ULT. MOVIMIENTO</th>
+                            <th>FECHA INGRESO</th>
+                            <th>NRO DE LOTES</th>
                             <th>CLIENTE</th>
                             <th>RUT</th>
                             <th>SUCURSAL</th>
                             <th>REGION / COMUNA</th>
+                            <th>ESTADO FACTURA</th>
                             <th>ESTADO CARPETA</th>
                             <th>ACCION</th>
                         </tr>
                     </thead>
                     <tbody id="operatorDocAlertsBody">
                         <tr>
-                            <td colspan="8">Sin carpetas para mostrar.</td>
+                            <td colspan="11">Sin carpetas para mostrar.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1248,6 +1269,6 @@
       };
     </script>
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
-    <script src="../../script.js?v=20260612-03"></script>
+    <script src="../../script.js?v=20260717-01"></script>
 </body>
 </html>

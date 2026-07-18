@@ -8661,6 +8661,9 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
             return res.status(403).json({ message: 'Solo OPERADOR puede buscar carpetas por estado.' });
         }
 
+        const region = normalizeText(req.query.region);
+        const fechaDesde = normalizeText(req.query.fechaDesde);
+        const fechaHasta = normalizeText(req.query.fechaHasta);
         const rawEstadoParams = Array.isArray(req.query.estadoCarpeta)
             ? req.query.estadoCarpeta
             : typeof req.query.estadoCarpeta === 'string'
@@ -8673,6 +8676,18 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
         if (estados.length > 25) {
             return res.status(400).json({ message: 'Selecciona hasta 25 filtros de estado.' });
         }
+        if (region && exceedsMaxLength(region, 120)) {
+            return res.status(400).json({ message: 'Region excede el largo maximo permitido.' });
+        }
+        if (fechaDesde && !isValidIsoDateOnly(fechaDesde)) {
+            return res.status(400).json({ message: 'Fecha DESDE invalida. Usa formato YYYY-MM-DD.' });
+        }
+        if (fechaHasta && !isValidIsoDateOnly(fechaHasta)) {
+            return res.status(400).json({ message: 'Fecha HASTA invalida. Usa formato YYYY-MM-DD.' });
+        }
+        if (fechaDesde && fechaHasta && fechaDesde > fechaHasta) {
+            return res.status(400).json({ message: 'La fecha DESDE no puede ser mayor que HASTA.' });
+        }
 
         const where = ["estado_carpeta IS NOT NULL", "TRIM(estado_carpeta) <> ''"];
         const values = [];
@@ -8680,16 +8695,30 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
             where.push(`estado_carpeta IN (${estados.map(() => '?').join(', ')})`);
             values.push(...estados);
         }
+        if (region) {
+            where.push('region = ?');
+            values.push(region);
+        }
+        if (fechaDesde) {
+            where.push('DATE(created_at) >= ?');
+            values.push(fechaDesde);
+        }
+        if (fechaHasta) {
+            where.push('DATE(created_at) <= ?');
+            values.push(fechaHasta);
+        }
 
         const [rows] = await pool.execute(
             `
                 SELECT
                     id,
                     num_ingreso,
+                    num_lotes,
                     nombre,
                     rut,
                     region,
                     comuna,
+                    estado,
                     estado_carpeta,
                     created_by_sucursal,
                     updated_by_sucursal,
@@ -8706,11 +8735,13 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
         const registros = rows.map((row) => ({
             id: Number(row.id || 0),
             numIngreso: row.num_ingreso || '',
+            numLotes: row.num_lotes ?? '',
             nombre: row.nombre || '',
             rut: row.rut || '',
             region: row.region || '',
             comuna: row.comuna || '',
             sucursal: normalizeText(row.updated_by_sucursal || row.created_by_sucursal),
+            estado: normalizeEstado(row.estado),
             estadoCarpeta: normalizeFolderStatusValue(row.estado_carpeta),
             createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
             updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at || row.created_at || '')
@@ -8876,11 +8907,13 @@ app.get('/api/registros/buscar-rango-fechas', async (req, res) => {
                     nombre,
                     rut,
                     rol,
+                    num_lotes,
                     telefono,
                     correo,
                     region,
                     comuna,
                     estado,
+                    estado_carpeta,
                     created_by_sucursal,
                     updated_by_sucursal,
                     created_at
@@ -8897,12 +8930,14 @@ app.get('/api/registros/buscar-rango-fechas', async (req, res) => {
             nombre: row.nombre,
             rut: row.rut,
             rol: row.rol,
+            numLotes: row.num_lotes ?? '',
             telefono: normalizeText(row.telefono),
             correo: normalizeText(row.correo),
             region: row.region,
             comuna: row.comuna,
             sucursal: normalizeText(row.updated_by_sucursal || row.created_by_sucursal),
             estado: normalizeEstado(row.estado),
+            estadoCarpeta: normalizeFolderStatusValue(row.estado_carpeta),
             createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
         }));
 

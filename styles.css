@@ -1084,6 +1084,10 @@ button {
     overflow-y: auto;
 }
 
+.operator-doc-alerts-table-wrapper .history-table {
+    min-width: 1180px;
+}
+
 .operator-doc-alerts-filters {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
