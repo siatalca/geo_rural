@@ -8,7 +8,7 @@ su `.env` y su GitHub; solo cambian los archivos de identidad del sitio.
 | Archivo | Contenido |
 |---|---|
 | `.env` | Secretos e infraestructura: base, usuario, puerto, SMTP de respaldo. |
-| `assets/site/site.js` | Nombre, firma de la cotización, prefijo de sesión/almacenamiento, ruta pública, puertos esperados y nombre de base permitido. |
+| `assets/site/site.js` | Nombre, firma y correo de respuesta (replyTo) de la cotización, prefijo de sesión/almacenamiento, ruta pública, puertos esperados y nombre de base permitido. |
 | `assets/site/site.css` | Ajustes visuales de la marca. |
 | `assets/img/logo.svg`, `favicon.svg`, `logo.png` | Logos (pantallas y correo). |
 | PDF de cotización (`cotizacionPdf` en `site.js`) | Plantilla de la carta. |

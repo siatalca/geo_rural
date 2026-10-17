@@ -146,6 +146,8 @@ const SMTP_PASSWORD = String(process.env.SMTP_PASSWORD || '');
 const SMTP_SECURE = parseBooleanFlag(process.env.SMTP_SECURE, false);
 const SMTP_FROM_EMAIL = normalizeText(process.env.SMTP_FROM_EMAIL || SMTP_USER).toLowerCase();
 const SMTP_FROM_NAME = normalizeText(process.env.SMTP_FROM_NAME || APP_NAME);
+// Correo de la oficina al que responde el cliente (assets/site/site.js); SMTP_REPLY_TO en .env lo reemplaza.
+const COTIZACION_REPLY_TO = normalizeText(process.env.SMTP_REPLY_TO || SITE.replyTo || '').toLowerCase();
 const MAIL_TEMPLATE_MAX_LENGTH = parsePositiveInt(process.env.MAIL_TEMPLATE_MAX_LENGTH, 400000);
 const MAIL_TEMPLATE_KEYS = Object.freeze(['cotizacionHtml', 'facturaSingleHtml', 'facturaPendingHtml']);
 const SMTP_CONFIG_SINGLETON_ID = 1;
@@ -5863,7 +5865,8 @@ app.post('/api/cotizaciones/enviar', async (req, res) => {
 
         const attachmentBuffer = await buildCotizacionTemplatePdfBuffer(summary);
         const periodLabel = formatMonthlyPeriodLabel(summary?.periodo?.anio, summary?.periodo?.mes);
-        const subject = `Cotizacion ${APP_NAME} ${periodLabel}`;
+        // Asunto con el nombre del cliente: los asuntos genericos repetidos favorecen el filtro de spam.
+        const subject = normalizeMailSubjectLine(`Cotización ${APP_NAME} - ${clientName} - ${periodLabel}`);
         const transporter = getSmtpTransporter(smtpResolution.config);
         if (!transporter) {
             return res.status(503).json({
@@ -5880,6 +5883,7 @@ app.post('/api/cotizaciones/enviar', async (req, res) => {
         });
         const deliveryInfo = await transporter.sendMail({
             from: fromAddress,
+            replyTo: isValidEmail(COTIZACION_REPLY_TO) ? COTIZACION_REPLY_TO : undefined,
             to: destinationEmail,
             subject,
             text: emailBody.text,

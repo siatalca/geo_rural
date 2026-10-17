@@ -22,6 +22,8 @@
         server: { defaultPort: 3001, portRange: null, requireEvenPort: false },
         // La base debe llamarse así; evita conectar por error a la base de otro sitio.
         database: { defaultName: 'geo_rural', namePattern: '^geo_rural(?:_[a-z0-9]+)*$' },
+        // Correo al que responde el cliente al recibir una cotización ('' = el remitente).
+        replyTo: 'georural.verificaciones@gmail.com',
         cotizacionPdf: '/assets/Carta de Cotizacion Geo Rural.pdf',
         firma: {
             personas: ['Pedro Antonio Gerardo Herrera Mendez', 'Pedro Ignacio Albornoz Sateler'],
