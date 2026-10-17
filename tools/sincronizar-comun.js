@@ -18,6 +18,7 @@ const COMMON_FILES = [
     'assets/js/chatbot.js',
     'assets/js/role-guide.js',
     'assets/js/site-brand.js',
+    'assets/js/button-help.js',
     'assets/js/pages/seguimiento.js',
     'assets/js/pages/mantenimiento.js',
     'assets/css/brand.css',

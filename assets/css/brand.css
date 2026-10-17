@@ -20,3 +20,23 @@ body .sia-guide-steps p, body .sia-company-note p { margin: 0; line-height: 1.55
 .sia-guide-logout { display: block; margin: 16px auto 0; padding: 8px 16px; border: 0; background: none; color: #193e46; text-decoration: underline; cursor: pointer; }
 .sia-onboarding button:focus-visible, .sia-creator a:focus-visible { outline: 3px solid #1c6a58; outline-offset: 4px; }
 .sia-onboarding button:disabled { cursor: wait; opacity: 0.65; }
+
+/* Ayuda breve de botones (assets/js/button-help.js). */
+.button-help-tip {
+    position: fixed;
+    z-index: 10000;
+    max-width: 280px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: #1f2f52;
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 400;
+    line-height: 1.4;
+    text-align: left;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+}
+.button-help-tip[hidden] { display: none; }
+.button-help-tip[data-level="cuidado"] { background: #6b4a00; border-left: 4px solid #f2b705; }
+.button-help-tip[data-level="peligro"] { background: #8a1c1c; border-left: 4px solid #ff8080; }
