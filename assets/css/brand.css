@@ -1,0 +1,22 @@
+/* Estilos comunes de login y guía de uso. Los ajustes de marca de cada sitio van en assets/site/site.css. */
+.sia-login-logo {
+    display: block;
+    width: 220px;
+    max-width: 100%;
+    height: auto;
+    margin: 0 0 20px;
+}
+
+body .sia-creator { margin: 20px 0 0; font-size: 0.88rem; }
+.sia-creator a { color: #123d47; font-weight: 700; text-underline-offset: 3px; }
+body .sia-onboarding { width: 720px; background: #f7faf9; padding: clamp(20px, 4vw, 36px); }
+.sia-guide-steps { padding-left: 24px; margin: 24px 0; color: #243e49; }
+.sia-guide-steps li { padding-left: 8px; margin-bottom: 20px; }
+body .sia-guide-steps h3 { font-size: 1rem; margin: 0 0 6px; }
+body .sia-guide-steps p, body .sia-company-note p { margin: 0; line-height: 1.55; color: #304b55; }
+.sia-company-note { border-top: 1px solid #bed0ca; padding-top: 20px; margin: 24px 0; }
+.sia-company-note h3 { color: #193e46; font-size: 1rem; margin: 0 0 8px; }
+.sia-onboarding .login-btn { width: 100%; }
+.sia-guide-logout { display: block; margin: 16px auto 0; padding: 8px 16px; border: 0; background: none; color: #193e46; text-decoration: underline; cursor: pointer; }
+.sia-onboarding button:focus-visible, .sia-creator a:focus-visible { outline: 3px solid #1c6a58; outline-offset: 4px; }
+.sia-onboarding button:disabled { cursor: wait; opacity: 0.65; }

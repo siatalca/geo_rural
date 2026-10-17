@@ -4,6 +4,10 @@ const mysql = require('mysql2/promise');
 const http = require('http');
 const path = require('path');
 const ROOT_DIR = path.resolve(__dirname, '..');
+// Identidad del sitio (nombre, firma, base y puertos esperados): assets/site/site.js.
+const SITE = loadSiteConfig();
+const { assertDatabaseName, assertAppPort, ensureBootstrapAccount, removeBootstrapCredential } = require('./bootstrap');
+const BOOTSTRAP_CREDENTIAL_PATH = path.join(ROOT_DIR, '.local', 'admin_sia.json');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
@@ -83,10 +87,12 @@ const IS_PRODUCTION_ENV = APP_ENV === 'production';
 
 const DB_HOST = process.env.DB_HOST || '127.0.0.1';
 const DB_PORT = Number(process.env.DB_PORT || 3306);
-const DB_USER = process.env.DB_USER || 'root';
+const DB_USER = process.env.DB_USER || 'sia_core_app';
 const DB_PASSWORD = process.env.DB_PASSWORD || '';
-const DB_NAME = process.env.DB_NAME || 'geo_rural';
-const PORT = Number(process.env.PORT || 3000);
+const DB_NAME = process.env.DB_NAME || SITE.database?.defaultName || 'sia_core';
+assertDatabaseName(DB_NAME, SITE.database?.namePattern);
+const PORT = Number(process.env.PORT || SITE.server?.defaultPort || 3104);
+assertAppPort(PORT, SITE.server);
 const HOST = process.env.HOST || '127.0.0.1';
 const APP_URL = normalizeText(process.env.APP_URL);
 const API_WRITE_KEY = normalizeText(process.env.API_WRITE_KEY);
@@ -102,12 +108,11 @@ const LOGIN_LOCK_MINUTES = parsePositiveInt(process.env.LOGIN_LOCK_MINUTES, 2);
 const MAX_PASSWORD_LENGTH = parsePositiveInt(process.env.MAX_PASSWORD_LENGTH, 200);
 const SESSION_CLEANUP_INTERVAL_MINUTES = parsePositiveInt(process.env.SESSION_CLEANUP_INTERVAL_MINUTES, 30);
 const ACTIVE_SESSION_WINDOW_MINUTES = parsePositiveInt(process.env.ACTIVE_SESSION_WINDOW_MINUTES, 20);
-const SESSION_COOKIE_NAME = 'geo_rural_session';
+const SESSION_COOKIE_NAME = SITE.sessionCookie || 'sia_core_session';
 const SESSION_COOKIE_MAX_AGE_SECONDS = AUTH_SESSION_HOURS * 60 * 60;
 const AUTH_COOKIE_DOMAIN = normalizeText(process.env.AUTH_COOKIE_DOMAIN || '');
 const AUTH_COOKIE_SAME_SITE = parseSameSiteValue(process.env.AUTH_COOKIE_SAME_SITE, 'Lax');
 const AUTH_COOKIE_SECURE_MODE = parseCookieSecureMode(process.env.AUTH_COOKIE_SECURE, 'auto');
-const DEFAULT_USERS = parseDefaultUsers(process.env.DEFAULT_USERS || '');
 const ROLE_ADMIN = 'ADMIN';
 const ROLE_SECRETARIA = 'SECRETARIA';
 const ROLE_OPERADOR = 'OPERADOR';
@@ -116,13 +121,8 @@ const ROLE_SUPER = 'SUPER';
 const PRIVILEGED_ROLES = Object.freeze([ROLE_ADMIN, ROLE_SUPER]);
 const ASSIGNABLE_ROLES_BY_ADMIN = Object.freeze([ROLE_ADMIN, ROLE_SECRETARIA, ROLE_OPERADOR, ROLE_SUPERVISOR]);
 const ASSIGNABLE_ROLES_BY_SUPER = Object.freeze([ROLE_SUPER, ROLE_ADMIN, ROLE_SECRETARIA, ROLE_OPERADOR, ROLE_SUPERVISOR]);
-const SUPERUSER_USERNAME = normalizeText(process.env.SUPERUSER_USERNAME || 'superusuario').toLowerCase();
-const SUPERUSER_PASSWORD = String(process.env.SUPERUSER_PASSWORD || '');
-const SUPERUSER_NAME = normalizeText(process.env.SUPERUSER_NAME || 'Super Usuario') || 'Super Usuario';
-const SUPERUSER_BRANCH = normalizeText(process.env.SUPERUSER_BRANCH || 'Casa Matriz') || 'Casa Matriz';
+const SUPERUSER_USERNAME = 'admin_sia';
 const GUEST_USERNAME = normalizeText(process.env.GUEST_USERNAME || 'invitado').toLowerCase() || 'invitado';
-const GUEST_DISPLAY_NAME = normalizeText(process.env.GUEST_NAME || 'Invitado') || 'Invitado';
-const GUEST_BRANCH_NAME = normalizeText(process.env.GUEST_BRANCH || 'Casa Matriz') || 'Casa Matriz';
 const DEFAULT_CREATION_COMMENT = 'creacion y recepcion al iniciar un nuevo registro';
 const SECRETARIA_NO_MOVIMIENTO_DAYS = parsePositiveInt(process.env.SECRETARIA_NO_MOVIMIENTO_DAYS, 8);
 const FACTURA_SOLICITUD_ESTADO_PENDIENTE = 'PENDIENTE';
@@ -135,14 +135,17 @@ const UTM_SOURCE_URL = normalizeText(process.env.UTM_SOURCE_URL || 'https://mind
 const UTM_SOURCE_TIMEOUT_MS = parsePositiveInt(process.env.UTM_SOURCE_TIMEOUT_MS, 5000);
 const UTM_SOURCE_CACHE_MINUTES = parsePositiveInt(process.env.UTM_SOURCE_CACHE_MINUTES, 30);
 const UTM_SOURCE_ERROR_CACHE_MINUTES = parsePositiveInt(process.env.UTM_SOURCE_ERROR_CACHE_MINUTES, 3);
-const COTIZACION_DOCUMENT_PATH = '/assets/Carta de Cotizacion Geo Rural.pdf';
+// Nombre comercial visible: assets/site/site.js; APP_NAME en .env lo reemplaza sin tocar el código.
+const APP_NAME = String(process.env.APP_NAME || SITE.appName || 'SIA Core').replace(/\s+/g, ' ').trim() || 'SIA Core';
+const APP_FILE_SLUG = APP_NAME.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'SIA';
+const COTIZACION_DOCUMENT_PATH = SITE.cotizacionPdf || '/assets/Carta de Cotizacion.pdf';
 const SMTP_HOST = normalizeText(process.env.SMTP_HOST || '');
 const SMTP_PORT = parsePositiveInt(process.env.SMTP_PORT, 587);
 const SMTP_USER = normalizeText(process.env.SMTP_USER || '');
 const SMTP_PASSWORD = String(process.env.SMTP_PASSWORD || '');
 const SMTP_SECURE = parseBooleanFlag(process.env.SMTP_SECURE, false);
 const SMTP_FROM_EMAIL = normalizeText(process.env.SMTP_FROM_EMAIL || SMTP_USER).toLowerCase();
-const SMTP_FROM_NAME = normalizeText(process.env.SMTP_FROM_NAME || 'Geo Rural');
+const SMTP_FROM_NAME = normalizeText(process.env.SMTP_FROM_NAME || APP_NAME);
 const MAIL_TEMPLATE_MAX_LENGTH = parsePositiveInt(process.env.MAIL_TEMPLATE_MAX_LENGTH, 400000);
 const MAIL_TEMPLATE_KEYS = Object.freeze(['cotizacionHtml', 'facturaSingleHtml', 'facturaPendingHtml']);
 const SMTP_CONFIG_SINGLETON_ID = 1;
@@ -173,10 +176,10 @@ const DEFAULT_FOLDER_STATUS_OPTIONS = Object.freeze([
 const LOGIN_ROUTE_NOTICE_DURATION_DAYS = parsePositiveInt(process.env.LOGIN_ROUTE_NOTICE_DURATION_DAYS, 15);
 const LOGIN_ROUTE_NOTICE_MAX_URL_LENGTH = parsePositiveInt(process.env.LOGIN_ROUTE_NOTICE_MAX_URL_LENGTH, 255);
 const LOGIN_ROUTE_NOTICE_DEV_URL = normalizeText(
-    process.env.LOGIN_ROUTE_NOTICE_DEV_URL || 'http://localhost/geo_rural/registro/login/registro.html'
+    process.env.LOGIN_ROUTE_NOTICE_DEV_URL || SITE.loginNoticeUrls?.dev || '/registro/login/registro.html'
 );
 const LOGIN_ROUTE_NOTICE_PROD_URL = normalizeText(
-    process.env.LOGIN_ROUTE_NOTICE_PROD_URL || 'https://mi-registro.cl/geo_rural/registro/login/registro.html'
+    process.env.LOGIN_ROUTE_NOTICE_PROD_URL || SITE.loginNoticeUrls?.prod || '/registro/login/registro.html'
 );
 const LOGIN_ROUTE_NOTICE_DEFAULT_URL = normalizeText(
     process.env.LOGIN_ROUTE_NOTICE_DEFAULT_URL || (IS_PRODUCTION_ENV ? LOGIN_ROUTE_NOTICE_PROD_URL : LOGIN_ROUTE_NOTICE_DEV_URL)
@@ -194,12 +197,6 @@ const SMTP_ENV_CONFIG = Object.freeze({
     fromEmail: SMTP_FROM_EMAIL,
     fromName: SMTP_FROM_NAME
 });
-const DEFAULT_COTIZACION_SERVICIOS = Object.freeze([
-    {
-        nombreServicio: 'Servicio estandar Geo Rural',
-        valorUtm: 1
-    }
-]);
 const COTIZACION_TEMPLATE_ROWS = Object.freeze([
     { lotes: '1 a 6', valorUtm: 5.33, y: 572.54 },
     { lotes: '7 a 15', valorUtm: 6.33, y: 546.86 },
@@ -248,6 +245,8 @@ const FRONTEND_FILE_PATHS = Object.freeze({
     'script.js': 'script.js',
     'styles.css': 'styles.css',
     'seguimiento.html': 'pages/seguimiento.html',
+    'pages/seguimiento.html': 'pages/seguimiento.html',
+    'pages/mantenimiento.html': 'pages/mantenimiento.html',
     'seguimiento.js': 'assets/js/pages/seguimiento.js',
     'seguimiento.css': 'assets/css/pages/seguimiento.css',
     'mantenimiento.html': 'pages/mantenimiento.html',
@@ -258,7 +257,6 @@ const FRONTEND_FILE_PATHS = Object.freeze({
     'logo.svg': 'assets/img/logo.svg'
 });
 const FRONTEND_FILES = Object.keys(FRONTEND_FILE_PATHS);
-let runtimeBootstrapAdmin = null;
 const loginAttempts = new Map();
 let lastSessionCleanupAt = 0;
 let utmSourceCache = {
@@ -295,6 +293,10 @@ const MAINTENANCE_ALLOWED_PAGE_PATHS = new Set([
     '/assets/js/pages/mantenimiento.js',
     '/assets/img/logo.png',
     '/assets/img/logo.svg',
+    '/assets/img/favicon.svg',
+    '/assets/css/brand.css',
+    '/assets/site/site.css',
+    '/assets/site/site.js',
     '/logo.png',
     '/logo.svg',
     '/favicon.ico'
@@ -312,6 +314,8 @@ const PUBLIC_FRONTEND_PATHS = new Set([
     '/index.html',
     '/seguimiento',
     '/seguimiento.html',
+    '/pages/seguimiento.html',
+    '/pages/mantenimiento.html',
     '/mantenimiento',
     '/mantenimiento/',
     '/mantenimiento.html',
@@ -478,7 +482,7 @@ function getStartupHints(error) {
         return [
             `El puerto ${PORT} ya esta en uso por otro proceso.`,
             'Cierra el proceso que usa ese puerto o cambia PORT en .env.',
-            'En Windows puedes usar: netstat -ano | findstr :3000'
+            `En Windows puedes usar: netstat -ano | findstr :${PORT}`
         ];
     }
 
@@ -537,7 +541,7 @@ function resolveErrorPageDetail(statusCode, message = '') {
         return 'Debes iniciar sesion para continuar.';
     }
     if (safeCode === 403) {
-        return 'Esta zona es exclusiva para personal autorizado de Geo Rural.';
+        return `Esta zona es exclusiva para personal autorizado de ${APP_NAME}.`;
     }
     if (safeCode === 404) {
         return 'La ruta solicitada no existe o fue movida.';
@@ -562,7 +566,7 @@ function buildErrorPageHtml({ statusCode = 500, message = '', requestPath = '' }
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${escapeHtmlText(String(safeCode))} | Geo Rural</title>
+    <title>${escapeHtmlText(String(safeCode))} | ${escapeHtmlText(APP_NAME)}</title>
     <style>
         :root {
             color-scheme: light;
@@ -1240,34 +1244,6 @@ function parseCsv(value, fallback = []) {
     return entries.length > 0 ? entries : [...fallback];
 }
 
-function parseDefaultUsers(value) {
-    const entries = String(value || '')
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0);
-
-    const users = [];
-    for (const entry of entries) {
-        const [usernameRaw, passwordRaw, branchRaw, nameRaw, roleRaw] = entry
-            .split('|')
-            .map((part) => normalizeText(part));
-        if (!usernameRaw || !passwordRaw || !branchRaw) {
-            continue;
-        }
-
-        const normalizedRole = normalizeUserRole(roleRaw, ROLE_OPERADOR);
-
-        users.push({
-            username: usernameRaw.toLowerCase(),
-            password: passwordRaw,
-            sucursal: branchRaw,
-            nombre: nameRaw || usernameRaw,
-            role: normalizedRole
-        });
-    }
-
-    return users;
-}
 
 function generateSecurePassword(length = 18) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%*+-_';
@@ -1285,28 +1261,7 @@ function generateSecurePassword(length = 18) {
     return password;
 }
 
-function resolveInitialUsers() {
-    if (DEFAULT_USERS.length > 0) {
-        return DEFAULT_USERS;
-    }
 
-    if (!runtimeBootstrapAdmin) {
-        runtimeBootstrapAdmin = {
-            username: 'admin',
-            password: generateSecurePassword(20),
-            sucursal: 'Casa Matriz',
-            nombre: 'Administrador Temporal',
-            role: ROLE_ADMIN
-        };
-
-        console.warn('DEFAULT_USERS vacio: se genero un ADMIN temporal aleatorio para el primer inicio.');
-        console.warn(`Usuario temporal: ${runtimeBootstrapAdmin.username}`);
-        console.warn(`Clave temporal generada: ${runtimeBootstrapAdmin.password}`);
-        console.warn('Ingresa y cambia esta clave inmediatamente.');
-    }
-
-    return [runtimeBootstrapAdmin];
-}
 
 function parseNumIngreso(value) {
     const match = /^(\d+)-(\d{4})$/.exec(String(value || '').trim());
@@ -1505,7 +1460,7 @@ function httpGetJson(url, timeoutMs = UTM_SOURCE_TIMEOUT_MS) {
             {
                 headers: {
                     Accept: 'application/json',
-                    'User-Agent': 'geo-rural-utm/1.0'
+                    'User-Agent': 'sia-utm/1.0'
                 }
             },
             (response) => {
@@ -1917,6 +1872,7 @@ function formatAuthUser(row) {
         sucursal: row.sucursal || '',
         role: normalizeUserRole(row.role, ROLE_OPERADOR),
         mustChangePassword: Number(row.must_change_password || 0) === 1,
+        onboardingPending: Number(row.onboarding_pending || 0) === 1,
         isGuest: username === GUEST_USERNAME
     };
 }
@@ -1943,7 +1899,7 @@ function isPrivilegedRole(role) {
 }
 
 function shouldForcePasswordChangeForRole(role) {
-    return normalizeUserRole(role, ROLE_OPERADOR) !== ROLE_SUPER;
+    return true;
 }
 
 function isAdminOrSuperUser(user) {
@@ -2514,7 +2470,7 @@ function buildCotizacionAttachmentFileName(summary) {
     const month = Number(summary?.periodo?.mes);
     const safeYear = Number.isInteger(year) && year >= 2000 ? year : new Date().getFullYear();
     const safeMonth = Number.isInteger(month) && month >= 1 && month <= 12 ? month : new Date().getMonth() + 1;
-    return `Cotizacion_Geo_Rural_${safeYear}_${String(safeMonth).padStart(2, '0')}.pdf`;
+    return `Cotizacion_${APP_FILE_SLUG}_${safeYear}_${String(safeMonth).padStart(2, '0')}.pdf`;
 }
 
 function getCotizacionTemplateFileAbsolutePath() {
@@ -2542,7 +2498,7 @@ function resolveCotizacionEmailLogoAttachment() {
     return {
         filename: path.basename(logoPath),
         path: logoPath,
-        cid: 'geo-rural-cotizacion-logo'
+        cid: 'cotizacion-logo'
     };
 }
 
@@ -2849,25 +2805,28 @@ function buildCotizacionPostTableParagraphs(periodLabel) {
         '',
         '4).- Vigencia y contacto:',
         'La presente cotizacion tiene vigencia durante el mes calendario indicado.',
-        'Para continuar con su proceso o resolver dudas, puede responder este correo o contactar su sucursal Geo Rural.'
+        `Para continuar con su proceso o resolver dudas, puede responder este correo o contactar su sucursal ${APP_NAME}.`
     ];
 }
 
 function buildCotizacionFormalSignatureLines() {
+    const firma = resolveSiteSignature();
+    const blocks = [...firma.personas, firma.empresa, firma.direccion].filter(Boolean);
+    // Con firmantes se deja espacio para la firma manuscrita, como en la carta original.
     return [
         'Saludos cordiales,',
-        '',
-        '',
-        '',
-        '',
-        'Pedro Antonio Gerardo Herrera Mendez',
-        '',
-        'Pedro Ignacio Albornoz Sateler',
-        '',
-        'GEO RURAL VERIFICACIONES LIMITADA',
-        '',
-        'Uno Norte N° 801, oficina 306, Talca'
+        ...(firma.personas.length ? ['', '', ''] : []),
+        ...blocks.flatMap((line, index) => (firma.personas.length || index > 0 ? ['', line] : [line]))
     ];
+}
+
+function resolveSiteSignature() {
+    const firma = SITE.firma && typeof SITE.firma === 'object' ? SITE.firma : {};
+    return {
+        personas: (Array.isArray(firma.personas) ? firma.personas : []).map(normalizeText).filter(Boolean),
+        empresa: normalizeText(firma.empresa) || `Equipo ${APP_NAME}`,
+        direccion: normalizeText(firma.direccion)
+    };
 }
 
 function buildCotizacionEmailText(summary, clientName, referenciaCliente, authUser, options = {}) {
@@ -2971,18 +2930,17 @@ function buildCotizacionEmailHtml(summary, clientName, referenciaCliente, authUs
               selectedParcelamiento.lotes
           )} lotes) en el periodo ${escapeHtmlForEmail(periodLabel)}:`
         : `Adicionalmente, presentamos el siguiente cuadro de valores para el periodo ${escapeHtmlForEmail(periodLabel)}:`;
-    const signatureLines = buildCotizacionFormalSignatureLines();
+    const firma = resolveSiteSignature();
     const signatureHtml = `<div style="margin-top:18px;">
-        <p style="margin:0 0 16px 0;">${escapeHtmlForEmail(signatureLines[0])}</p>
-        <p style="margin:0 0 10px 0;">${escapeHtmlForEmail(signatureLines[5])}</p>
-        <p style="margin:0 0 10px 0;">${escapeHtmlForEmail(signatureLines[7])}</p>
-        <p style="margin:0 0 10px 0;font-weight:700;color:#0f2f66;">${escapeHtmlForEmail(signatureLines[9])}</p>
-        <p style="margin:0;">${escapeHtmlForEmail(signatureLines[11])}</p>
+        <p style="margin:0 0 16px 0;">Saludos cordiales,</p>
+        ${firma.personas.map((persona) => `<p style="margin:0 0 10px 0;">${escapeHtmlForEmail(persona)}</p>`).join('\n        ')}
+        <p style="margin:0 0 10px 0;font-weight:700;color:#0f2f66;">${escapeHtmlForEmail(firma.empresa)}</p>
+        ${firma.direccion ? `<p style="margin:0;">${escapeHtmlForEmail(firma.direccion)}</p>` : ''}
     </div>`;
     const logoCid = normalizeText(options?.logoCid);
     const logoHtml = logoCid
         ? `<div style="margin-top:18px;text-align:center;">
-            <img src="cid:${escapeHtmlForEmail(logoCid)}" alt="Geo Rural" style="max-width:180px;width:46%;height:auto;">
+            <img src="cid:${escapeHtmlForEmail(logoCid)}" alt="${escapeHtmlForEmail(APP_NAME)}" style="max-width:180px;width:46%;height:auto;">
         </div>`
         : '';
     const postTableParagraphsHtml = buildCotizacionPostTableParagraphs(periodLabel)
@@ -3019,7 +2977,7 @@ function buildCotizacionEmailHtml(summary, clientName, referenciaCliente, authUs
     return `<div style="font-family:Arial,Helvetica,sans-serif;background:#eef8ff;padding:20px 10px;color:#2d84d2;line-height:1.45;font-size:14px;">
         <div style="max-width:780px;margin:0 auto;background:#ffffff;border:1px solid #d6e2ff;border-radius:14px;overflow:hidden;">
             <div style="background:linear-gradient(135deg,#4ea7f8 0%,#2f86d7 100%);padding:16px 22px;color:#ffffff;">
-                <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0.2px;">Carta de Cotizacion Geo Rural</p>
+                <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0.2px;">Carta de Cotizacion ${escapeHtmlForEmail(APP_NAME)}</p>
                 <p style="margin:6px 0 0 0;font-size:12px;opacity:0.95;">Periodo ${escapeHtmlForEmail(periodLabel)} | UTM vigente ${escapeHtmlForEmail(
                     formatCurrencyClp(summary?.utm?.valor)
                 )}</p>
@@ -3077,7 +3035,7 @@ function buildDefaultCotizacionTemplateHtml() {
     <div style="font-family:Arial,Helvetica,sans-serif;background:#eef8ff;padding:20px 10px;color:#2d84d2;line-height:1.45;font-size:14px;">
         <div style="max-width:780px;margin:0 auto;background:#ffffff;border:1px solid #d6e2ff;border-radius:14px;overflow:hidden;">
             <div style="background:linear-gradient(135deg,#4ea7f8 0%,#2f86d7 100%);padding:16px 22px;color:#ffffff;">
-                <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0.2px;">Carta de Cotizacion Geo Rural</p>
+                <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0.2px;">Carta de Cotizacion ${escapeHtmlForEmail(APP_NAME)}</p>
                 <p style="margin:6px 0 0 0;font-size:12px;opacity:0.95;">Periodo {{PERIODO_UTM}} | UTM vigente {{UTM_VIGENTE}}</p>
             </div>
             <div style="padding:20px 22px 18px 22px;">
@@ -3232,7 +3190,7 @@ function buildCotizacionPdfBuffer(summary, referenciaCliente, authUser) {
         const userName = normalizeText(authUser?.nombre || authUser?.username || 'Secretaria');
         const branch = normalizeText(authUser?.sucursal || 'Sin sucursal');
 
-        doc.font('Helvetica-Bold').fontSize(18).text('Carta de Cotizacion Geo Rural', {
+        doc.font('Helvetica-Bold').fontSize(18).text(`Carta de Cotizacion ${APP_NAME}`, {
             align: 'center'
         });
         doc.moveDown(0.4);
@@ -3315,7 +3273,7 @@ function buildCotizacionPdfBuffer(summary, referenciaCliente, authUser) {
         y += 14;
         doc.text(`Sucursal: ${branch}`, startX, y);
         y += 14;
-        doc.text('Documento generado automaticamente por sistema Geo Rural.', startX, y);
+        doc.text(`Documento generado automaticamente por sistema ${APP_NAME}.`, startX, y);
 
         doc.end();
     });
@@ -3342,9 +3300,9 @@ function toSmtpRuntimeConfig(source) {
     const user = normalizeText(raw.user ?? raw.smtp_user ?? raw.smtpUser);
     const password = String(raw.password ?? raw.smtp_password ?? raw.smtpPassword ?? '');
     const rawFromEmail = raw.fromEmail ?? raw.smtp_from_email ?? raw.smtpFromEmail ?? user;
-    const rawFromName = raw.fromName ?? raw.smtp_from_name ?? raw.smtpFromName ?? 'Geo Rural';
+    const rawFromName = raw.fromName ?? raw.smtp_from_name ?? raw.smtpFromName ?? APP_NAME;
     const fromEmail = normalizeText(rawFromEmail).toLowerCase();
-    const fromName = normalizeText(rawFromName) || 'Geo Rural';
+    const fromName = normalizeText(rawFromName) || APP_NAME;
 
     return {
         host,
@@ -3461,6 +3419,21 @@ function getMailTransportErrorDetails(error, fallbackMessage) {
     };
 }
 
+// Deja constancia de la respuesta SMTP (sin direcciones) para rastrear correos que no llegan,
+// y trata como error un destinatario rechazado aunque el envio no haya lanzado excepcion.
+function assertMailDelivered(kind, info) {
+    const accepted = Array.isArray(info?.accepted) ? info.accepted.length : 0;
+    const rejected = Array.isArray(info?.rejected) ? info.rejected.length : 0;
+    console.info(
+        `[Correo] ${kind}: messageId=${normalizeText(info?.messageId) || '-'} aceptados=${accepted} rechazados=${rejected} respuesta=${normalizeText(info?.response) || '-'}`
+    );
+    if (rejected > 0 || accepted === 0) {
+        const error = new Error('El servidor SMTP no acepto al destinatario.');
+        error.code = 'EENVELOPE';
+        throw error;
+    }
+}
+
 function sendMailTransportErrorResponse(res, error, fallbackMessage) {
     const details = getMailTransportErrorDetails(error, fallbackMessage);
     return res.status(details.status).json({
@@ -3480,10 +3453,14 @@ function getSmtpTransporter(config) {
         return smtpTransporter;
     }
 
+    // Plazos acotados: sin ellos un SMTP que no responde deja la pantalla esperando ~2 minutos.
     const transportConfig = {
         host: runtimeConfig.host,
         port: runtimeConfig.port,
-        secure: runtimeConfig.secure
+        secure: runtimeConfig.secure,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 60000
     };
     if (runtimeConfig.user) {
         transportConfig.auth = {
@@ -3852,7 +3829,7 @@ function setMaintenanceModeCacheFromRow(row) {
 function normalizeLoginRouteNoticeUrl(value) {
     const raw = normalizeText(value || LOGIN_ROUTE_NOTICE_DEFAULT_URL);
     if (!raw) {
-        return normalizeText(LOGIN_ROUTE_NOTICE_DEFAULT_URL || '/geo_rural/registro/login/registro.html');
+        return normalizeText(LOGIN_ROUTE_NOTICE_DEFAULT_URL || '/registro/login/registro.html');
     }
 
     if (IS_PRODUCTION_ENV) {
@@ -3864,7 +3841,7 @@ function normalizeLoginRouteNoticeUrl(value) {
             /^https?:\/\/m[iy]-registro\.cl(?:\/|$)/i.test(raw) ||
             /^m[iy]-registro\.cl(?:\/|$)/i.test(raw)
         ) {
-            return normalizeText(LOGIN_ROUTE_NOTICE_PROD_URL || LOGIN_ROUTE_NOTICE_DEFAULT_URL || '/geo_rural/registro/login/registro.html');
+            return normalizeText(LOGIN_ROUTE_NOTICE_PROD_URL || LOGIN_ROUTE_NOTICE_DEFAULT_URL || '/registro/login/registro.html');
         }
     }
 
@@ -4062,7 +4039,7 @@ function isLoopbackRedirectTarget(target) {
 }
 
 function resolveConfiguredLoginRedirectTarget(requestPathname = '', req = null) {
-    const fallbackTarget = '/geo_rural/registro/login/registro.html';
+    const fallbackTarget = '/registro/login/registro.html';
     const configuredTarget = normalizeLoginRouteNoticeUrl(
         loginRouteNoticeCache.url || LOGIN_ROUTE_NOTICE_DEFAULT_URL || fallbackTarget
     );
@@ -4272,6 +4249,7 @@ async function findSessionUserByToken(token) {
                 u.sucursal,
                 u.role,
                 u.must_change_password,
+                u.onboarding_pending,
                 u.activo
             FROM sesiones s
             INNER JOIN usuarios u ON u.id = s.user_id
@@ -4422,6 +4400,7 @@ async function ensureUsersMustChangePasswordColumn() {
         '`must_change_password` TINYINT(1) NOT NULL DEFAULT 0 AFTER password_hash'
     );
     await pool.query('UPDATE usuarios SET must_change_password = 0 WHERE must_change_password IS NULL');
+    await ensureColumn('usuarios', 'onboarding_pending', '`onboarding_pending` TINYINT(1) NOT NULL DEFAULT 0 AFTER must_change_password');
 }
 
 async function ensureCorreoTemplateColumns() {
@@ -4458,12 +4437,6 @@ async function createBranchesTable() {
 async function seedBranchesFromUsers() {
     const branchNames = new Set();
 
-    DEFAULT_USERS.forEach((user) => {
-        const branch = normalizeText(user.sucursal);
-        if (branch) {
-            branchNames.add(branch);
-        }
-    });
 
     const [userRows] = await pool.execute(
         `
@@ -4505,6 +4478,7 @@ async function createAuthTables() {
             password_salt CHAR(32) NOT NULL,
             password_hash CHAR(128) NOT NULL,
             must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+            onboarding_pending TINYINT(1) NOT NULL DEFAULT 0,
             activo TINYINT(1) NOT NULL DEFAULT 1,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -4658,6 +4632,20 @@ async function createCotizacionServiciosTable() {
     `);
 }
 
+// Igual que en el sistema de origen: con la tabla vacía se crea un servicio estándar de 1 UTM
+// para que la cotización funcione desde el primer día. Se ajusta luego en la base.
+async function seedCotizacionServiciosDefaults() {
+    const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM cotizacion_servicios_estandar');
+    if (Number(rows[0]?.total || 0) > 0) {
+        return;
+    }
+
+    await pool.execute(
+        'INSERT INTO cotizacion_servicios_estandar (nombre_servicio, valor_utm, orden_visual, activo) VALUES (?, ?, 1, 1)',
+        [`Servicio estandar ${APP_NAME}`, 1]
+    );
+}
+
 async function createCorreoConfiguracionTable() {
     await pool.query(`
         CREATE TABLE IF NOT EXISTS correo_configuracion (
@@ -4682,36 +4670,6 @@ async function createCorreoConfiguracionTable() {
     `);
 }
 
-async function seedCotizacionServiciosDefaults() {
-    const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM cotizacion_servicios_estandar');
-    const total = Number(rows[0]?.total || 0);
-    if (total > 0) {
-        return;
-    }
-
-    let order = 1;
-    for (const item of DEFAULT_COTIZACION_SERVICIOS) {
-        const nombreServicio = normalizeText(item?.nombreServicio);
-        const valorUtm = Number(item?.valorUtm);
-        if (!nombreServicio || !Number.isFinite(valorUtm) || valorUtm <= 0) {
-            continue;
-        }
-
-        await pool.execute(
-            `
-                INSERT INTO cotizacion_servicios_estandar (
-                    nombre_servicio,
-                    valor_utm,
-                    orden_visual,
-                    activo
-                )
-                VALUES (?, ?, ?, 1)
-            `,
-            [nombreServicio, Number(valorUtm.toFixed(2)), order]
-        );
-        order += 1;
-    }
-}
 
 async function ensureFacturaSolicitudesUniqueIngresoIndex() {
     const [indexes] = await pool.query("SHOW INDEX FROM factura_solicitudes WHERE Key_name = 'uq_factura_solicitudes_num_ingreso'");
@@ -4766,124 +4724,13 @@ async function ensureFacturaSolicitudesUniqueIngresoIndex() {
     await pool.query('ALTER TABLE factura_solicitudes ADD UNIQUE KEY uq_factura_solicitudes_num_ingreso (num_ingreso)');
 }
 
-async function seedDefaultUsers() {
-    const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM usuarios');
-    const total = Number(rows[0].total || 0);
 
-    if (total > 0) {
-        return;
-    }
 
-    const initialUsers = resolveInitialUsers();
 
-    for (const user of initialUsers) {
-        const passwordData = createPasswordHash(user.password);
-        await pool.execute(
-            `
-                INSERT INTO usuarios (username, nombre, sucursal, role, password_salt, password_hash, must_change_password)
-                VALUES (?, ?, ?, ?, ?, ?, 0)
-            `,
-            [user.username, user.nombre, user.sucursal, user.role, passwordData.salt, passwordData.hash]
-        );
-    }
-
-    console.warn(
-        `Se crearon ${initialUsers.length} usuarios iniciales (${initialUsers
-            .map((item) => `${item.username}@${item.sucursal}`)
-            .join(', ')}).`
-    );
-    console.warn('Verifica y cambia las claves iniciales lo antes posible.');
-}
-
-function resolveSuperUserBootstrapPassword() {
-    const normalizedPassword = String(SUPERUSER_PASSWORD || '');
-    if (normalizedPassword.length >= 6 && !exceedsMaxLength(normalizedPassword, MAX_PASSWORD_LENGTH)) {
-        return {
-            password: normalizedPassword,
-            generated: false
-        };
-    }
-
-    return {
-        password: generateSecurePassword(20),
-        generated: true
-    };
-}
 
 async function ensureSuperUserAccount() {
-    if (!SUPERUSER_USERNAME) {
-        throw new Error('SUPERUSER_USERNAME no puede estar vacio.');
-    }
-
-    if (!/^[a-z0-9._-]{3,40}$/.test(SUPERUSER_USERNAME)) {
-        throw new Error('SUPERUSER_USERNAME invalido. Usa 3-40 caracteres (a-z, 0-9, ., _, -).');
-    }
-
-    if (isGuestUsername(SUPERUSER_USERNAME)) {
-        throw new Error('SUPERUSER_USERNAME no puede ser el mismo usuario invitado.');
-    }
-
-    if (exceedsMaxLength(SUPERUSER_NAME, 120) || exceedsMaxLength(SUPERUSER_BRANCH, 120)) {
-        throw new Error('SUPERUSER_NAME y SUPERUSER_BRANCH no pueden exceder 120 caracteres.');
-    }
-
-    let superAccountId = null;
-    const [existingRows] = await pool.execute('SELECT id, role FROM usuarios WHERE username = ? LIMIT 1', [SUPERUSER_USERNAME]);
-    if (existingRows.length > 0) {
-        await pool.execute(
-            `
-                UPDATE usuarios
-                SET nombre = ?, sucursal = ?, role = ?, must_change_password = 0, activo = 1, updated_at = NOW()
-                WHERE id = ?
-            `,
-            [SUPERUSER_NAME, SUPERUSER_BRANCH, ROLE_SUPER, existingRows[0].id]
-        );
-        superAccountId = Number(existingRows[0].id);
-
-        if (normalizeUserRole(existingRows[0].role, ROLE_OPERADOR) !== ROLE_SUPER) {
-            console.warn(`Usuario ${SUPERUSER_USERNAME} promovido a SUPER automaticamente.`);
-        }
-    } else {
-        const superPasswordData = resolveSuperUserBootstrapPassword();
-        const passwordData = createPasswordHash(superPasswordData.password);
-        const [insertResult] = await pool.execute(
-            `
-                INSERT INTO usuarios (username, nombre, sucursal, role, password_salt, password_hash, must_change_password, activo)
-                VALUES (?, ?, ?, ?, ?, ?, 0, 1)
-            `,
-            [SUPERUSER_USERNAME, SUPERUSER_NAME, SUPERUSER_BRANCH, ROLE_SUPER, passwordData.salt, passwordData.hash]
-        );
-        superAccountId = Number(insertResult.insertId);
-
-        if (superPasswordData.generated) {
-            console.warn(
-                `Se creo usuario SUPER por seguridad: ${SUPERUSER_USERNAME}. Clave temporal generada: ${superPasswordData.password}`
-            );
-            console.warn(
-                'Define SUPERUSER_PASSWORD en .env para un valor permanente y cambialo inmediatamente en produccion.'
-            );
-        } else {
-            console.warn(`Se creo usuario SUPER: ${SUPERUSER_USERNAME}.`);
-        }
-    }
-
-    if (Number.isInteger(superAccountId) && superAccountId > 0) {
-        const [demoteResult] = await pool.execute(
-            `
-                UPDATE usuarios
-                SET role = ?, must_change_password = 0, updated_at = NOW()
-                WHERE UPPER(role) = 'SUPER' AND id <> ?
-            `,
-            [ROLE_ADMIN, superAccountId]
-        );
-
-        const demotedCount = Number(demoteResult.affectedRows || 0);
-        if (demotedCount > 0) {
-            console.warn(
-                `Se detectaron ${demotedCount} cuentas SUPER adicionales y se degradaron a ADMIN para mantener una sola cuenta SUPER.`
-            );
-        }
-    }
+    const result = await ensureBootstrapAccount(pool, BOOTSTRAP_CREDENTIAL_PATH);
+    if (result.created) console.log('Cuenta admin_sia creada. Consulta la clave temporal en .local/admin_sia.json; se exigirá cambiarla al ingresar.');
 }
 
 async function countActivePrivilegedUsers() {
@@ -4908,90 +4755,8 @@ async function countSuperUsers(excludeUserId = null) {
     return Number(rows[0]?.totalSuper || 0);
 }
 
-async function ensureAtLeastOnePrivilegedAccount() {
-    if ((await countActivePrivilegedUsers()) > 0) {
-        return;
-    }
 
-    const preferredPrivileged = resolveInitialUsers().find((item) => isPrivilegedRole(item.role));
-    if (!preferredPrivileged) {
-        throw new Error('No existe usuario ADMIN/SUPER de referencia. Define uno en DEFAULT_USERS o SUPERUSER_*.');
-    }
 
-    const preferredRole = isPrivilegedRole(preferredPrivileged.role) ? preferredPrivileged.role : ROLE_ADMIN;
-    const [existingRows] = await pool.execute('SELECT id FROM usuarios WHERE username = ? LIMIT 1', [preferredPrivileged.username]);
-    if (existingRows.length > 0) {
-        await pool.execute('UPDATE usuarios SET role = ?, activo = 1 WHERE id = ?', [preferredRole, existingRows[0].id]);
-        console.warn(`Usuario ${preferredPrivileged.username} promovido a ${preferredRole} automaticamente.`);
-        return;
-    }
-
-    const passwordData = createPasswordHash(preferredPrivileged.password);
-    const mustChangePassword = shouldForcePasswordChangeForRole(preferredRole) ? 1 : 0;
-    await pool.execute(
-        `
-            INSERT INTO usuarios (username, nombre, sucursal, role, password_salt, password_hash, must_change_password, activo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-        `,
-        [
-            preferredPrivileged.username,
-            preferredPrivileged.nombre,
-            preferredPrivileged.sucursal,
-            preferredRole,
-            passwordData.salt,
-            passwordData.hash,
-            mustChangePassword
-        ]
-    );
-
-    console.warn(`Se creo usuario ${preferredRole} por seguridad: ${preferredPrivileged.username}. Cambia su contrasena.`);
-}
-
-async function ensureGuestUserAccount() {
-    const generatedPassword = createPasswordHash(generateSecurePassword(24));
-    await pool.execute(
-        `
-            INSERT INTO usuarios (username, nombre, sucursal, role, password_salt, password_hash, must_change_password, activo)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 1)
-            ON DUPLICATE KEY UPDATE
-                nombre = VALUES(nombre),
-                sucursal = VALUES(sucursal),
-                role = VALUES(role),
-                must_change_password = 0
-        `,
-        [
-            GUEST_USERNAME,
-            GUEST_DISPLAY_NAME,
-            GUEST_BRANCH_NAME,
-            ROLE_OPERADOR,
-            generatedPassword.salt,
-            generatedPassword.hash
-        ]
-    );
-
-    const [rows] = await pool.execute(
-        `
-            SELECT
-                id AS user_id,
-                username,
-                nombre,
-                sucursal,
-                role,
-                must_change_password,
-                activo
-                FROM usuarios
-                WHERE LOWER(username) = ?
-                LIMIT 1
-            `,
-            [GUEST_USERNAME]
-        );
-
-    if (!rows.length) {
-        throw new Error('No fue posible inicializar el usuario invitado.');
-    }
-
-    return rows[0];
-}
 
 async function reserveNextIngreso(connection, anio) {
     const [rows] = await connection.execute(
@@ -5063,7 +4828,7 @@ async function createSystemConfigTable() {
             id TINYINT UNSIGNED NOT NULL,
             maintenance_mode TINYINT(1) NOT NULL DEFAULT 0,
             login_notice_enabled TINYINT(1) NOT NULL DEFAULT 0,
-            login_notice_url VARCHAR(255) NOT NULL DEFAULT '/geo_rural/registro/login/registro.html',
+            login_notice_url VARCHAR(255) NOT NULL DEFAULT '/registro/login/registro.html',
             login_notice_message VARCHAR(600) NULL,
             login_notice_starts_at DATETIME NULL,
             login_notice_expires_at DATETIME NULL,
@@ -5086,7 +4851,7 @@ async function ensureSystemConfigColumns() {
     await ensureColumn(
         'sistema_configuracion',
         'login_notice_url',
-        "`login_notice_url` VARCHAR(255) NOT NULL DEFAULT '/geo_rural/registro/login/registro.html' AFTER login_notice_enabled"
+        "`login_notice_url` VARCHAR(255) NOT NULL DEFAULT '/registro/login/registro.html' AFTER login_notice_enabled"
     );
     await ensureColumn(
         'sistema_configuracion',
@@ -5399,7 +5164,7 @@ async function saveFolderStatusCatalog(payload = {}, actorUser = null) {
 }
 
 async function initDatabase() {
-    const sanitizedDbName = cleanDbIdentifier(DB_NAME) || 'geo_rural';
+    const sanitizedDbName = cleanDbIdentifier(DB_NAME) || 'sia_core';
     const bootstrapConnection = await mysql.createConnection({
         host: DB_HOST,
         port: DB_PORT,
@@ -5506,10 +5271,7 @@ async function initDatabase() {
         await ensureCorreoTemplateColumns();
         await seedCotizacionServiciosDefaults();
         await ensureFacturaSolicitudesUniqueIngresoIndex();
-        await seedDefaultUsers();
         await ensureSuperUserAccount();
-        await ensureAtLeastOnePrivilegedAccount();
-        await ensureGuestUserAccount();
         await seedBranchesFromUsers();
         await loadMaintenanceModeCache();
     } catch (error) {
@@ -5563,6 +5325,7 @@ app.post('/api/auth/login', async (req, res) => {
                     sucursal,
                     role,
                     must_change_password,
+                    onboarding_pending,
                     password_salt,
                     password_hash,
                     activo
@@ -5621,44 +5384,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-app.post('/api/auth/guest', async (req, res) => {
-    try {
-        await cleanupExpiredSessionsIfNeeded();
-        const guestUser = await ensureGuestUserAccount();
-
-        if (Number(guestUser.activo) !== 1) {
-            clearSessionCookie(res);
-            return res.status(403).json({ message: 'La cuenta de invitado esta deshabilitada por el administrador.' });
-        }
-
-        const token = generateSessionToken();
-        await pool.execute(
-            `
-                INSERT INTO sesiones (user_id, token_hash, expires_at, absolute_expires_at, last_used_at)
-                VALUES (
-                    ?,
-                    ?,
-                    DATE_ADD(NOW(), INTERVAL ? HOUR),
-                    DATE_ADD(NOW(), INTERVAL ? HOUR),
-                    NOW()
-                )
-            `,
-            [guestUser.user_id, hashToken(token), AUTH_SESSION_HOURS, AUTH_SESSION_ABSOLUTE_HOURS]
-        );
-
-        setSessionCookie(res, token);
-        console.info(`[Auth] Sesion invitado iniciada por ${guestUser.username}. IP=${getClientIp(req)}`);
-
-        const guestAuthUser = formatAuthUser(guestUser);
-        return res.json({
-            expiresInHours: AUTH_SESSION_HOURS,
-            absoluteExpiresInHours: AUTH_SESSION_ABSOLUTE_HOURS,
-            user: guestAuthUser
-        });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ message: 'No fue posible iniciar sesion como invitado.' });
-    }
+app.post('/api/auth/guest', (req, res) => {
+    return res.status(403).json({ message: 'El acceso de invitados no está habilitado en esta instalación.' });
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
@@ -5709,6 +5436,7 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
                     sucursal,
                     role,
                     must_change_password,
+                    onboarding_pending,
                     password_salt,
                     password_hash,
                     activo
@@ -5727,14 +5455,18 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
             return res.status(401).json({ message: 'La clave actual es incorrecta.' });
         }
 
+        if (newPassword === currentPassword) {
+            return res.status(400).json({ message: 'La nueva clave debe ser distinta de la clave temporal o actual.' });
+        }
+        const onboardingPending = Number(rows[0].must_change_password || 0) === 1 || Number(rows[0].onboarding_pending || 0) === 1;
         const newPasswordData = createPasswordHash(newPassword);
         await pool.execute(
             `
                 UPDATE usuarios
-                SET password_salt = ?, password_hash = ?, must_change_password = 0, updated_at = NOW()
+                SET password_salt = ?, password_hash = ?, must_change_password = 0, onboarding_pending = ?, updated_at = NOW()
                 WHERE id = ?
             `,
-            [newPasswordData.salt, newPasswordData.hash, req.authUser.id]
+            [newPasswordData.salt, newPasswordData.hash, onboardingPending ? 1 : 0, req.authUser.id]
         );
 
         await pool.execute('UPDATE sesiones SET revoked_at = NOW() WHERE user_id = ? AND id <> ?', [
@@ -5742,11 +5474,16 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
             req.authSessionId
         ]);
 
+        if (rows[0].username === 'admin_sia') {
+            try { removeBootstrapCredential(BOOTSTRAP_CREDENTIAL_PATH); }
+            catch (cleanupError) { console.warn('No se pudo eliminar .local/admin_sia.json; elimina ese archivo de clave temporal manualmente.'); }
+        }
         const updatedUser = {
             ...rows[0],
             password_salt: newPasswordData.salt,
             password_hash: newPasswordData.hash,
-            must_change_password: 0
+            must_change_password: 0,
+            onboarding_pending: onboardingPending ? 1 : 0
         };
 
         return res.json({
@@ -5830,6 +5567,16 @@ app.get('/api/public/system-status', async (req, res) => {
 
 app.use('/api', requireAuth);
 app.use('/api', requirePasswordChangeCompleted);
+
+app.post('/api/auth/onboarding-complete', async (req, res) => {
+    try {
+        await pool.execute('UPDATE usuarios SET onboarding_pending = 0 WHERE id = ?', [req.authUser.id]);
+        return res.json({ onboardingPending: false });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No se pudo guardar la lectura de la guía. Intenta nuevamente.' });
+    }
+});
 
 app.get('/api/carpeta-estados/catalogo', async (req, res) => {
     try {
@@ -6116,7 +5863,7 @@ app.post('/api/cotizaciones/enviar', async (req, res) => {
 
         const attachmentBuffer = await buildCotizacionTemplatePdfBuffer(summary);
         const periodLabel = formatMonthlyPeriodLabel(summary?.periodo?.anio, summary?.periodo?.mes);
-        const subject = `Cotizacion Geo Rural ${periodLabel}`;
+        const subject = `Cotizacion ${APP_NAME} ${periodLabel}`;
         const transporter = getSmtpTransporter(smtpResolution.config);
         if (!transporter) {
             return res.status(503).json({
@@ -6131,7 +5878,7 @@ app.post('/api/cotizaciones/enviar', async (req, res) => {
             selectedParcelamiento,
             customHtmlTemplate: mailTemplates.cotizacionHtml
         });
-        await transporter.sendMail({
+        const deliveryInfo = await transporter.sendMail({
             from: fromAddress,
             to: destinationEmail,
             subject,
@@ -6145,6 +5892,7 @@ app.post('/api/cotizaciones/enviar', async (req, res) => {
                 }
             ]
         });
+        assertMailDelivered('Cotizacion', deliveryInfo);
 
         return res.json({
             message: `Cotizacion enviada correctamente a ${destinationEmail}.`,
@@ -6644,13 +6392,14 @@ app.post('/api/facturas/correo/enviar', requireWriteAccess, async (req, res) => 
             });
         }
 
-        await transporter.sendMail({
+        const deliveryInfo = await transporter.sendMail({
             from: buildSmtpFromAddress(smtpResolution.config),
             to: destinationEmail,
             subject,
             text: textBody || undefined,
             html: htmlBody || undefined
         });
+        assertMailDelivered('Factura', deliveryInfo);
 
         return res.json({
             message: `Correo enviado correctamente a ${destinationEmail}.`,
@@ -6812,6 +6561,7 @@ app.get('/api/admin/usuarios', requireAdmin, async (req, res) => {
                     sucursal,
                     role,
                     must_change_password,
+                    onboarding_pending,
                     activo,
                     created_at
                 FROM usuarios
@@ -7016,9 +6766,7 @@ app.put('/api/admin/usuarios/:userId', requireAdmin, async (req, res) => {
         }
 
         let mustChangePassword = Number(targetRows[0].must_change_password || 0) === 1;
-        if (role === ROLE_SUPER) {
-            mustChangePassword = false;
-        }
+
 
         if (password) {
             const passwordData = createPasswordHash(password);
@@ -7053,7 +6801,7 @@ app.put('/api/admin/usuarios/:userId', requireAdmin, async (req, res) => {
                 await pool.execute(
                     `
                         UPDATE usuarios
-                        SET username = ?, nombre = ?, sucursal = ?, role = ?, must_change_password = 0, updated_at = NOW()
+                        SET username = ?, nombre = ?, sucursal = ?, role = ?, updated_at = NOW()
                         WHERE id = ?
                     `,
                     [username, nombre, sucursal, role, userId]
@@ -7280,7 +7028,7 @@ app.put('/api/admin/correo-config', requireSuper, async (req, res) => {
         const smtpSecure = parseBooleanFlag(req.body?.smtpSecure ?? req.body?.secure, false);
         const smtpUser = normalizeText(req.body?.smtpUser ?? req.body?.user);
         const smtpFromEmail = normalizeText(req.body?.smtpFromEmail ?? req.body?.fromEmail ?? smtpUser).toLowerCase();
-        const smtpFromName = normalizeText(req.body?.smtpFromName ?? req.body?.fromName) || 'Geo Rural';
+        const smtpFromName = normalizeText(req.body?.smtpFromName ?? req.body?.fromName) || APP_NAME;
         const providedPassword = String(req.body?.smtpPassword ?? req.body?.password ?? '');
         const keepPassword = parseBooleanFlag(req.body?.keepPassword, true);
 
@@ -7384,6 +7132,38 @@ app.put('/api/admin/correo-config', requireSuper, async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: 'No fue posible guardar la configuracion de correo.' });
+    }
+});
+
+// Envia un correo corto con la configuracion SMTP guardada, para verificarla sin generar datos.
+app.post('/api/admin/correo-config/prueba', requireSuper, async (req, res) => {
+    try {
+        const destinationEmail = normalizeText(req.body?.destinationEmail).toLowerCase();
+        if (!destinationEmail || !isValidEmail(destinationEmail) || exceedsMaxLength(destinationEmail, 255)) {
+            return res.status(400).json({ message: 'Ingresa un correo de destino valido para la prueba.' });
+        }
+
+        const smtpResolution = await resolveActiveSmtpConfiguration();
+        const transporter = smtpResolution.config ? getSmtpTransporter(smtpResolution.config) : null;
+        if (!transporter) {
+            return res.status(503).json({ message: 'Guarda primero una configuracion SMTP completa.' });
+        }
+
+        const sentBy = normalizeText(req.authUser?.nombre || req.authUser?.username || 'superusuario');
+        const deliveryInfo = await transporter.sendMail({
+            from: buildSmtpFromAddress(smtpResolution.config),
+            to: destinationEmail,
+            subject: `Correo de prueba ${APP_NAME}`,
+            text:
+                `Este es un correo de prueba enviado desde ${APP_NAME} por ${sentBy}.\n` +
+                'Si lo recibiste, la configuracion SMTP funciona correctamente.'
+        });
+        assertMailDelivered('Prueba', deliveryInfo);
+
+        return res.json({ message: `Correo de prueba enviado a ${destinationEmail}.` });
+    } catch (error) {
+        console.error('Error enviando correo de prueba:', error);
+        return sendMailTransportErrorResponse(res, error, 'No fue posible enviar el correo de prueba.');
     }
 });
 
@@ -9247,4 +9027,17 @@ async function start() {
     }
 }
 
-start();
+function loadSiteConfig() {
+    try {
+        return require(path.join(ROOT_DIR, 'assets', 'site', 'site.js'));
+    } catch (error) {
+        if (error.code !== 'MODULE_NOT_FOUND') {
+            throw error;
+        }
+        console.warn('Falta assets/site/site.js: se usan valores genericos de sitio.');
+        return {};
+    }
+}
+
+if (require.main === module) start();
+module.exports = { app, start };

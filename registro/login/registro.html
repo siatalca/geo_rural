@@ -3,10 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="geo-rural-api-base" content="">
-    <title>Formulario de Registro - Geo Rural</title>
-    <link rel="icon" type="image/png" href="../../assets/img/logo.png">
-    <link rel="stylesheet" href="../../styles.css?v=20260717-01">
+    <meta name="app-api-base" content="">
+    <title>Formulario de Registro</title>
+    <script src="../../assets/site/site.js?v=20261017"></script>
+    <script src="../../assets/js/site-brand.js?v=20261017"></script>
+    <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017">
+    <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
+    <link rel="stylesheet" href="../../styles.css?v=20261017-02">
+    <link rel="stylesheet" href="../../assets/site/site.css?v=20261017">
 </head>
 <body>
     <div id="appTopPanels" class="app-top-panels hidden">
@@ -201,7 +205,7 @@
                             <input type="text" id="adminEmailUser" maxlength="255" placeholder="notificaciones@tudominio.com">
                         </div>
                         <div class="form-group">
-                            <label for="adminEmailPassword">SMTP CLAVE (DEJA VACIO PARA MANTENER)</label>
+                            <label for="adminEmailPassword">SMTP CLAVE</label>
                             <input type="password" id="adminEmailPassword" maxlength="255" placeholder="********">
                         </div>
                         <div class="form-group admin-create-wrap">
@@ -211,6 +215,9 @@
                             </label>
                         </div>
                     </div>
+                    <p class="helper-text admin-email-hint">Gmail: usa una contraseña de aplicación, no tu clave normal.
+                        <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">Crear contraseña de aplicación</a>
+                        (requiere <a href="https://myaccount.google.com/signinoptions/two-step-verification" target="_blank" rel="noopener noreferrer">verificación en 2 pasos</a>).</p>
                     <div class="form-row form-row-triple">
                         <div class="form-group">
                             <label for="adminEmailFromEmail">CORREO REMITENTE</label>
@@ -218,12 +225,25 @@
                         </div>
                         <div class="form-group">
                             <label for="adminEmailFromName">NOMBRE REMITENTE</label>
-                            <input type="text" id="adminEmailFromName" maxlength="120" placeholder="Geo Rural">
+                            <input type="text" id="adminEmailFromName" maxlength="120" placeholder="" data-site-placeholder>
                         </div>
                         <div class="form-group admin-create-wrap">
                             <button type="button" id="adminEmailLoadBtn" class="admin-cancel-btn">RECARGAR CONFIG</button>
                             <button type="button" id="adminEmailSaveBtn" class="admin-create-btn">GUARDAR CORREO</button>
                         </div>
+                    </div>
+                    <div class="admin-email-test">
+                        <h4>PROBAR ENVIO</h4>
+                        <div class="form-row form-row-triple">
+                            <div class="form-group admin-email-test-input">
+                                <label for="adminEmailTestTo">CORREO DE DESTINO</label>
+                                <input type="email" id="adminEmailTestTo" maxlength="255" placeholder="destino@correo.com">
+                            </div>
+                            <div class="form-group admin-create-wrap">
+                                <button type="button" id="adminEmailTestBtn" class="admin-create-btn">ENVIAR PRUEBA</button>
+                            </div>
+                        </div>
+                        <p class="helper-text">Envía un correo corto con la configuración guardada. Guarda antes de probar.</p>
                     </div>
                 </div>
                 <p id="adminEmailSource" class="helper-text"></p>
@@ -351,7 +371,7 @@
                             type="text"
                             id="adminLoginNoticeUrl"
                             maxlength="255"
-                            placeholder="https://mi-registro.cl/geo_rural/registro/login/registro.html"
+                            placeholder="/registro/login/registro.html"
                         >
                     </div>
                 </div>
@@ -368,6 +388,7 @@
 
     <div class="container">
         <section class="auth-card" id="authCard">
+            <img class="sia-login-logo" src="../../assets/img/logo.svg" alt="Logo" data-site-logo>
             <h2>INICIO DE SESION</h2>
             <p>Ingresa con tu usuario para registrar cambios por sucursal.</p>
             <form id="loginForm" class="auth-form" autocomplete="off">
@@ -381,8 +402,22 @@
                 </div>
                 <button type="submit" class="login-btn">INGRESAR</button>
             </form>
-            <button type="button" id="guestLoginBtn" class="guest-login-btn guest-login-standalone">INGRESAR COMO INVITADO</button>
             <p id="loginMessage" class="form-message" role="status" aria-live="polite"></p>
+            <p class="sia-creator">Creado por <a href="https://siacore.cl/" target="_blank" rel="noopener noreferrer">SIA Core</a></p>
+        </section>
+
+        <section class="auth-card sia-onboarding hidden" id="onboardingCard" aria-labelledby="onboardingTitle">
+            <img class="sia-login-logo" src="../../assets/img/logo.svg" alt="Logo" data-site-logo>
+            <h2 id="onboardingTitle" tabindex="-1">Tu guía de uso</h2>
+            <p id="onboardingIntro"></p>
+            <ol id="onboardingSteps" class="sia-guide-steps"></ol>
+            <section class="sia-company-note" aria-labelledby="onboardingCompanyTitle">
+                <h3 id="onboardingCompanyTitle">Los datos de tu empresa</h3>
+                <p id="onboardingCompanyNote"></p>
+            </section>
+            <p id="onboardingMessage" class="form-message" role="status" aria-live="polite"></p>
+            <button type="button" class="login-btn" id="onboardingCompleteBtn">Entendido, continuar</button>
+            <button type="button" class="sia-guide-logout" id="onboardingLogoutBtn">Cerrar sesión</button>
         </section>
 
         <section class="auth-card hidden" id="passwordChangeCard">
@@ -439,7 +474,7 @@
                     <h2>FORMULARIO DE REGISTRO</h2>
                     <span>Registro de Datos</span>
                 </div>
-                <img src="../../assets/img/logo.png" alt="Geo Rural Logo" class="logo">
+                <img src="../../assets/img/logo.svg" alt="Logo" data-site-logo class="logo">
             </div>
             <div id="registroActionsRow" class="button-row">
                 <button type="button" class="guardar">GUARDAR</button>
@@ -956,9 +991,11 @@
 
     <div id="mailSendProgressOverlay" class="modal-overlay hidden">
         <div class="modal-card mail-progress-card" role="status" aria-live="polite" aria-label="Enviando correo">
-            <div class="mail-progress-spinner" aria-hidden="true"></div>
+            <div id="mailSendProgressSpinner" class="mail-progress-spinner" aria-hidden="true"></div>
+            <div id="mailSendProgressCheck" class="mail-progress-check hidden" aria-hidden="true"></div>
             <h3 id="mailSendProgressText">Enviando correo...</h3>
             <p id="mailSendProgressStatus" class="form-message mail-progress-status"></p>
+            <button type="button" id="mailSendProgressConfirmBtn" class="admin-create-btn mail-progress-confirm hidden">ACEPTAR</button>
         </div>
     </div>
 
@@ -1259,9 +1296,6 @@
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
-      if (window.location.hostname === "localhost" && window.location.port !== "3004") {
-        window.SIA_API_BASE_URL = "http://localhost:3004/api";
-      }
 
       window.SIA_CHATBOT_CONFIG = {
         enabled: false,
@@ -1269,6 +1303,7 @@
       };
     </script>
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
-    <script src="../../script.js?v=20260717-01"></script>
+    <script src="../../assets/js/role-guide.js?v=20261015"></script>
+    <script src="../../script.js?v=20261017-02"></script>
 </body>
 </html>

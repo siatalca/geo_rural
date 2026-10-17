@@ -713,6 +713,24 @@ button {
     justify-content: flex-end;
 }
 
+#adminEmailForm .admin-email-hint {
+    margin: -4px 0 16px;
+}
+
+.admin-email-test {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #b7c7df;
+}
+
+.admin-email-test .admin-email-test-input {
+    flex: 2;
+}
+
+.admin-email-test .helper-text {
+    margin-top: -6px;
+}
+
 .admin-create-btn {
     background: #2a3d6b;
     color: #fff;
@@ -1144,6 +1162,65 @@ button {
 
 .mail-progress-status {
     margin-top: 12px;
+}
+
+/* Tic de envío exitoso: mismo círculo, color y grosor que .mail-progress-spinner. */
+.mail-progress-check {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 6px solid #2a3d6b;
+    box-sizing: border-box;
+    animation: mail-progress-check-pop 0.35s ease-out;
+}
+
+.mail-progress-check::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    width: 13px;
+    height: 26px;
+    border-right: 6px solid #2a3d6b;
+    border-bottom: 6px solid #2a3d6b;
+    transform: translate(-50%, -50%) rotate(45deg);
+    transform-origin: center;
+    animation: mail-progress-check-draw 0.3s ease-out 0.15s both;
+}
+
+.mail-progress-confirm {
+    margin-top: 14px;
+}
+
+@keyframes mail-progress-check-pop {
+    from {
+        transform: scale(0.6);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes mail-progress-check-draw {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -50%) rotate(45deg) scale(0.4);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) rotate(45deg) scale(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mail-progress-check,
+    .mail-progress-check::after {
+        animation: none;
+    }
 }
 
 @keyframes mail-progress-spin {

@@ -1,10 +1,14 @@
 
-const API_BASE_STORAGE = 'geo_rural_api_base';
+// Identidad del sitio: assets/site/site.js se carga antes que este archivo.
+const SITE = window.SITE_CONFIG || {};
+const APP_NAME = SITE.appName || 'SIA Core';
+const STORAGE_PREFIX = SITE.storagePrefix || 'sia_core';
+const API_BASE_STORAGE = `${STORAGE_PREFIX}_api_base`;
 let API_BASE = resolveApiBase();
 const API_BASE_FALLBACKS = resolveApiFallbackBases(API_BASE);
-const AUTH_TOKEN_STORAGE = 'geo_rural_auth_token';
-const API_KEY_STORAGE = 'geo_rural_api_key';
-const DOCUMENT_OPTIONS_STORAGE = 'geo_rural_folder_status_options';
+const AUTH_TOKEN_STORAGE = `${STORAGE_PREFIX}_auth_token`;
+const API_KEY_STORAGE = `${STORAGE_PREFIX}_api_key`;
+const DOCUMENT_OPTIONS_STORAGE = `${STORAGE_PREFIX}_folder_status_options`;
 const DOCUMENT_OPTIONS_STORAGE_VERSION = 2;
 const DOCUMENT_GROUP_IDS = ['grupo_1', 'grupo_2', 'grupo_3', 'grupo_4', 'grupo_5'];
 const DEFAULT_DOCUMENT_GROUP_TITLES = [
@@ -14,8 +18,8 @@ const DEFAULT_DOCUMENT_GROUP_TITLES = [
     'Certificado',
     'Cierre'
 ];
-const OPERATOR_LAST_DEST_EMAIL_STORAGE = 'geo_rural_last_invoice_destination_email';
-const SECRETARY_DAILY_ALERT_STORAGE_PREFIX = 'geo_rural_secretary_no_movement_seen_';
+const OPERATOR_LAST_DEST_EMAIL_STORAGE = `${STORAGE_PREFIX}_last_invoice_destination_email`;
+const SECRETARY_DAILY_ALERT_STORAGE_PREFIX = `${STORAGE_PREFIX}_secretary_no_movement_seen_`;
 const SECRETARY_NO_MOVEMENT_DAYS = 8;
 const APP_BUILD = '2026-06-12-03';
 const MAIL_SEND_PROGRESS_MIN_MS = 1600;
@@ -470,7 +474,7 @@ const PENDING_MODIFY_REQUIRED_WARNING =
     'Se detectaron cambios en el formulario o estado de carpeta. Favor guardar cambios pulsando el boton MODIFICAR.';
 
 document.addEventListener('DOMContentLoaded', async () => {
-    console.info(`[Geo Rural] Frontend build ${APP_BUILD}`);
+    console.info(`[${APP_NAME}] Frontend build ${APP_BUILD}`);
     ui = {
         appTopPanels: document.getElementById('appTopPanels'),
         authCard: document.getElementById('authCard'),
@@ -565,6 +569,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         adminEmailFromName: document.getElementById('adminEmailFromName'),
         adminEmailLoadBtn: document.getElementById('adminEmailLoadBtn'),
         adminEmailSaveBtn: document.getElementById('adminEmailSaveBtn'),
+        adminEmailTestTo: document.getElementById('adminEmailTestTo'),
+        adminEmailTestBtn: document.getElementById('adminEmailTestBtn'),
         adminEmailSource: document.getElementById('adminEmailSource'),
         adminEmailMessage: document.getElementById('adminEmailMessage'),
         adminMailTemplateType: document.getElementById('adminMailTemplateType'),
@@ -709,6 +715,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         mailSendProgressOverlay: document.getElementById('mailSendProgressOverlay'),
         mailSendProgressText: document.getElementById('mailSendProgressText'),
         mailSendProgressStatus: document.getElementById('mailSendProgressStatus'),
+        mailSendProgressSpinner: document.getElementById('mailSendProgressSpinner'),
+        mailSendProgressCheck: document.getElementById('mailSendProgressCheck'),
+        mailSendProgressConfirmBtn: document.getElementById('mailSendProgressConfirmBtn'),
         invoiceEmailPromptOverlay: document.getElementById('invoiceEmailPromptOverlay'),
         invoiceEmailPromptInput: document.getElementById('invoiceEmailPromptInput'),
         invoiceEmailPromptMessage: document.getElementById('invoiceEmailPromptMessage'),
@@ -998,6 +1007,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (ui.adminEmailSaveBtn) {
         ui.adminEmailSaveBtn.addEventListener('click', () => void handleAdminEmailSave());
+    }
+    if (ui.adminEmailTestBtn) {
+        ui.adminEmailTestBtn.addEventListener('click', () => void handleAdminEmailTest());
     }
     if (ui.adminMailTemplateType) {
         ui.adminMailTemplateType.addEventListener('change', () => {
@@ -1663,6 +1675,52 @@ async function bootstrapSession() {
     }
 }
 
+function showWelcomeGuide(user) {
+    const guide = window.SiaRoleGuide.get(user.role);
+    const card = document.getElementById('onboardingCard');
+    for (const id of ['authCard', 'passwordChangeCard', 'utmCaptureCard', 'registroForm', 'appTopPanels']) {
+        document.getElementById(id)?.classList.add('hidden');
+    }
+    document.body.classList.remove('app-authenticated');
+    document.getElementById('onboardingTitle').textContent = `Tu guía de uso · ${guide.label}`;
+    document.getElementById('onboardingIntro').textContent = guide.intro;
+    document.getElementById('onboardingCompanyNote').textContent = guide.companyNote;
+    const list = document.getElementById('onboardingSteps');
+    list.replaceChildren();
+    for (const [title, description] of guide.steps) {
+        const item = document.createElement('li');
+        const heading = document.createElement('h3');
+        const paragraph = document.createElement('p');
+        heading.textContent = title;
+        paragraph.textContent = description;
+        item.append(heading, paragraph);
+        list.append(item);
+    }
+    const message = document.getElementById('onboardingMessage');
+    const button = document.getElementById('onboardingCompleteBtn');
+    setFormMessage(message, '', '');
+    button.disabled = false;
+    button.onclick = async () => {
+        button.disabled = true;
+        setFormMessage(message, '', '');
+        try {
+            await apiRequest('/auth/onboarding-complete', { method: 'POST', body: '{}' });
+            currentUser.onboardingPending = false;
+            card.classList.add('hidden');
+            await activateAuthenticatedUser(currentUser);
+        } catch (error) {
+            if (isAuthFailureError(error)) return;
+            card.classList.remove('hidden');
+            setFormMessage(message, error.message || 'No se pudo continuar. Intenta nuevamente.', 'error');
+        } finally {
+            button.disabled = false;
+        }
+    };
+    document.getElementById('onboardingLogoutBtn').onclick = () => ui.logoutBtn.click();
+    card.classList.remove('hidden');
+    document.getElementById('onboardingTitle').focus();
+}
+
 async function activateAuthenticatedUser(user, options = {}) {
     const passwordMessage = options.passwordMessage || '';
     if (!user) {
@@ -1675,6 +1733,10 @@ async function activateAuthenticatedUser(user, options = {}) {
         return;
     }
 
+    if (currentUser.onboardingPending) {
+        showWelcomeGuide(currentUser);
+        return;
+    }
     const monthlyUtmStatus = await fetchMonthlyUtmStatusIfNeeded(currentUser);
     if (monthlyUtmStatus && monthlyUtmStatus.required) {
         showMonthlyUtmCaptureCard(currentUser, monthlyUtmStatus);
@@ -1782,6 +1844,7 @@ function notifyChatbotLoggedOut() {
 }
 
 function showAppForUser(user) {
+    document.getElementById('onboardingCard')?.classList.add('hidden');
     const userRole = normalizeUserRole(user?.role);
     const userRoleLabel = isGuestUser(user) ? 'INVITADO' : userRole;
     const userCanAccessAdminConsole = canAccessAdminConsole(user);
@@ -1996,6 +2059,7 @@ function showAppForUser(user) {
 }
 
 function showAuthCard(message = '') {
+    document.getElementById('onboardingCard')?.classList.add('hidden');
     authLoginInProgress = false;
     setAuthLoginBusyState(false);
     if (ui.appTopPanels) {
@@ -2078,6 +2142,7 @@ function showAuthCard(message = '') {
         ui.mailSendProgressText.textContent = 'Enviando correo...';
     }
     setFormMessage(ui.mailSendProgressStatus, '', '');
+    setMailSendProgressSuccessView(false);
     clearAdminEmailConfigState();
     syncAdminRoleOptionsForCurrentUser();
     syncSecretariaInvoiceDetailStatusControl();
@@ -3511,6 +3576,15 @@ function showMailSendProgress(startMessage = 'Enviando correo...') {
     ui.mailSendProgressOverlay.classList.remove('hidden');
 }
 
+function setMailSendProgressSuccessView(isSuccess) {
+    if (!ui) {
+        return;
+    }
+    ui.mailSendProgressSpinner?.classList.toggle('hidden', isSuccess);
+    ui.mailSendProgressCheck?.classList.toggle('hidden', !isSuccess);
+    ui.mailSendProgressConfirmBtn?.classList.toggle('hidden', !isSuccess);
+}
+
 async function hideMailSendProgress(finalMessage = '', statusType = 'success', options = {}) {
     if (!ui || !ui.mailSendProgressOverlay) {
         return;
@@ -3539,7 +3613,18 @@ async function hideMailSendProgress(finalMessage = '', statusType = 'success', o
         }
     }
 
-    if (finalDurationMs > 0) {
+    if (options.confirm && statusType === 'success' && ui.mailSendProgressConfirmBtn) {
+        // Muestra el tic y espera a que el usuario confirme antes de cerrar.
+        if (ui.mailSendProgressText) {
+            ui.mailSendProgressText.textContent = 'Correo enviado';
+        }
+        setMailSendProgressSuccessView(true);
+        await new Promise((resolve) => {
+            ui.mailSendProgressConfirmBtn.addEventListener('click', resolve, { once: true });
+            ui.mailSendProgressConfirmBtn.focus();
+        });
+        setMailSendProgressSuccessView(false);
+    } else if (finalDurationMs > 0) {
         await waitForMs(finalDurationMs);
     }
 
@@ -3804,12 +3889,12 @@ async function handleSendSecretariaQuotation(event) {
                 body: JSON.stringify(buildPayload(clientName))
             });
         }
-        await hideMailSendProgress('Correo enviado correctamente.', 'success');
-        setFormMessage(
-            ui.secretariaQuotationMessage,
+        await hideMailSendProgress(
             result?.message || `Cotizacion enviada correctamente a ${destinationEmail}.`,
-            'success'
+            'success',
+            { confirm: true }
         );
+        closeSecretariaQuotationModal();
     } catch (error) {
         await hideMailSendProgress('No fue posible enviar el correo.', 'error', {
             minDurationMs: MAIL_SEND_PROGRESS_MIN_MS,
@@ -4486,7 +4571,7 @@ async function exportDateRangeWorkbookAsXlsxTable(registros) {
     const columnWidths = [6, 18, 20, 14, 40, 16, 16, 15, 35, 20, 20, 20, 18, 32];
 
     const workbook = new excelJsLib.Workbook();
-    workbook.creator = 'Geo Rural';
+    workbook.creator = APP_NAME;
     workbook.created = new Date();
     const worksheet = workbook.addWorksheet('Registros', {
         views: [{ state: 'frozen', ySplit: 1 }]
@@ -4869,7 +4954,7 @@ async function maybeShowSecretaryNoMovementAlert(user) {
         openSecretaryNoMovementModal();
     } catch (error) {
         // Evitar bloquear el ingreso por errores en esta alerta.
-        console.warn('[Geo Rural] No fue posible cargar seguimiento de registros sin movimiento.', error);
+        console.warn(`[${APP_NAME}] No fue posible cargar seguimiento de registros sin movimiento.`, error);
     }
 }
 
@@ -5160,7 +5245,7 @@ async function exportOperatorDocumentAlertsAsXlsxTable(records) {
     const columnWidths = [6, 18, 22, 22, 14, 40, 16, 22, 22, 22, 18, 32];
 
     const workbook = new excelJsLib.Workbook();
-    workbook.creator = 'Geo Rural';
+    workbook.creator = APP_NAME;
     workbook.created = new Date();
     const worksheet = workbook.addWorksheet('Carpetas SAG', {
         views: [{ state: 'frozen', ySplit: 1 }]
@@ -5369,7 +5454,7 @@ async function refreshOperatorDocumentAlerts({ silent = true } = {}) {
         return operatorDocumentAlerts;
     } catch (error) {
         if (silent) {
-            console.warn('[Geo Rural] No fue posible actualizar carpetas por estado para operador.', error);
+            console.warn(`[${APP_NAME}] No fue posible actualizar carpetas por estado para operador.`, error);
             return [];
         }
         setFormMessage(ui?.operatorDocAlertsMessage, error.message, 'error');
@@ -7089,6 +7174,7 @@ async function handleUtmCaptureSubmit(event) {
 }
 
 function showPasswordChangeCard(user, message = '') {
+    document.getElementById('onboardingCard')?.classList.add('hidden');
     if (ui.appTopPanels) {
         ui.appTopPanels.classList.add('hidden');
     }
@@ -7446,13 +7532,7 @@ function normalizeAdminLoginNoticeUrl(value) {
 }
 
 function getDefaultLoginNoticeUrlByRuntime() {
-    const host = String(window.location.hostname || '')
-        .trim()
-        .toLowerCase();
-    if (host === 'localhost' || host === '127.0.0.1') {
-        return 'http://localhost/geo_rural/registro/login/registro.html';
-    }
-    return 'https://mi-registro.cl/geo_rural/registro/login/registro.html';
+    return new URL(`${SITE.basePath || ''}/registro/login/registro.html`, window.location.origin).href;
 }
 
 function applyAdminLoginRouteNoticeStatus(status) {
@@ -7831,7 +7911,7 @@ function clearAdminEmailConfigState() {
         ui.adminEmailFromEmail.value = '';
     }
     if (ui.adminEmailFromName) {
-        ui.adminEmailFromName.value = 'Geo Rural';
+        ui.adminEmailFromName.value = APP_NAME;
     }
     if (ui.adminEmailKeepPassword) {
         ui.adminEmailKeepPassword.checked = true;
@@ -7875,7 +7955,7 @@ function applyAdminEmailConfigResult(result) {
         ui.adminEmailFromEmail.value = normalizeInvoiceText(config.smtpFromEmail, 255).toLowerCase();
     }
     if (ui.adminEmailFromName) {
-        ui.adminEmailFromName.value = normalizeInvoiceText(config.smtpFromName || 'Geo Rural', 120);
+        ui.adminEmailFromName.value = normalizeInvoiceText(config.smtpFromName || APP_NAME, 120);
     }
 
     const sourceMap = {
@@ -7961,6 +8041,37 @@ async function handleAdminEmailSave() {
         setFormMessage(ui.adminEmailMessage, result.message || 'Configuracion de correo guardada.', 'success');
     } catch (error) {
         setFormMessage(ui.adminEmailMessage, error.message, 'error');
+    }
+}
+
+async function handleAdminEmailTest() {
+    if (!isSuperUser(currentUser) || !ui) {
+        setFormMessage(ui.adminEmailMessage, 'Solo el superusuario puede probar el correo.', 'error');
+        return;
+    }
+
+    const destinationEmail = normalizeInvoiceText(ui.adminEmailTestTo?.value, 255).toLowerCase();
+    if (!isValidEmail(destinationEmail)) {
+        setFormMessage(ui.adminEmailMessage, 'Ingresa un correo de destino valido para la prueba.', 'error');
+        return;
+    }
+
+    if (ui.adminEmailTestBtn) {
+        ui.adminEmailTestBtn.disabled = true;
+    }
+    setFormMessage(ui.adminEmailMessage, 'Enviando correo de prueba...', 'success');
+    try {
+        const result = await apiRequest('/admin/correo-config/prueba', {
+            method: 'POST',
+            body: JSON.stringify({ destinationEmail })
+        });
+        setFormMessage(ui.adminEmailMessage, result.message || 'Correo de prueba enviado.', 'success');
+    } catch (error) {
+        setFormMessage(ui.adminEmailMessage, error.message, 'error');
+    } finally {
+        if (ui.adminEmailTestBtn) {
+            ui.adminEmailTestBtn.disabled = false;
+        }
     }
 }
 
@@ -8060,13 +8171,16 @@ function buildCotizacionPreviewReplacements() {
         <p style="margin:12px 0 6px 0;font-weight:700;color:#1f74bf;">2).- Alcance general de los valores informados:</p>
         <p style="margin:0 0 6px 0;color:#2d84d2;">Los valores del cuadro son referenciales y corresponden al mes consultado.</p>
     `.trim();
+    const firma = SITE.firma || {};
+    const personasHtml = (Array.isArray(firma.personas) ? firma.personas : [])
+        .map((persona) => `<p style="margin:0 0 10px 0;">${escapeHtml(persona)}</p>`)
+        .join('');
     const signatureHtml = `
         <div style="margin-top:18px;">
             <p style="margin:0 0 16px 0;">Saludos cordiales,</p>
-            <p style="margin:0 0 10px 0;">Pedro Antonio Gerardo Herrera Mendez</p>
-            <p style="margin:0 0 10px 0;">Pedro Ignacio Albornoz Sateler</p>
-            <p style="margin:0 0 10px 0;font-weight:700;color:#1f74bf;">GEO RURAL VERIFICACIONES LIMITADA</p>
-            <p style="margin:0;">Uno Norte N° 801, oficina 306, Talca</p>
+            ${personasHtml}
+            <p style="margin:0 0 10px 0;font-weight:700;color:#1f74bf;">${escapeHtml(firma.empresa || `Equipo ${APP_NAME}`)}</p>
+            ${firma.direccion ? `<p style="margin:0;">${escapeHtml(firma.direccion)}</p>` : ''}
         </div>
     `.trim();
     return {
@@ -8079,7 +8193,7 @@ function buildCotizacionPreviewReplacements() {
             '<p style="margin:0 0 10px 0;"><strong>1).- Cotizacion por los servicios de verificacion:</strong></p><p style="margin:0 0 14px 0;">Tramo 7 a 15 lotes.</p>',
         TABLA_VALORES_HTML: sampleTable,
         PARRAFOS_POST_TABLA_HTML: postTableParagraphs,
-        ATENCION_NOMBRE: 'Administrador Geo Rural',
+        ATENCION_NOMBRE: `Administrador ${APP_NAME}`,
         ATENCION_SUCURSAL: 'Casa Matriz',
         FIRMA_HTML: signatureHtml,
         LOGO_HTML: ''
@@ -8092,7 +8206,7 @@ function buildFacturaSinglePreviewReplacements() {
         nombreRazonSocial: 'Cliente de Prueba SpA',
         rut: '76.123.456-7',
         giro: 'Servicios Profesionales',
-        direccion: 'Uno Norte 801, Oficina 306',
+        direccion: SITE.demoAddress || 'Dirección de ejemplo',
         comuna: 'Talca',
         ciudad: 'Maule',
         contacto: 'cliente@correo.cl',
@@ -8132,7 +8246,7 @@ function createAdminPendingMailPreviewItems(count = adminMailTemplatePendingPrev
             nombreRazonSocial: `Cliente de Prueba ${index + 1} SpA`,
             rut: `76.123.${String(450 + index).padStart(3, '0')}-7`,
             giro: 'Servicios Profesionales',
-            direccion: `Uno Norte 801, Oficina ${306 + index}`,
+            direccion: `${SITE.demoAddress || 'Dirección de ejemplo'} (${index + 1})`,
             comuna: index % 2 === 0 ? 'Talca' : 'Curico',
             ciudad: 'Maule',
             contacto: `cliente${index + 1}@correo.cl`,
@@ -8972,7 +9086,7 @@ async function loadFolderStatusCatalogFromServer({ silent = true } = {}) {
         if (!silent) {
             setFormMessage(ui?.adminDocumentMessage || ui?.formMessage, error.message, 'error');
         } else {
-            console.warn('[Geo Rural] No fue posible cargar catalogo de estados de carpeta.', error);
+            console.warn(`[${APP_NAME}] No fue posible cargar catalogo de estados de carpeta.`, error);
         }
         return null;
     }
@@ -10831,7 +10945,7 @@ function resolveApiBase() {
         return override;
     }
 
-    const metaValue = normalizeApiBase(document.querySelector('meta[name=\"geo-rural-api-base\"]')?.content || '');
+    const metaValue = normalizeApiBase(document.querySelector('meta[name="app-api-base"]')?.content || '');
     if (metaValue) {
         return metaValue;
     }
@@ -10840,8 +10954,8 @@ function resolveApiBase() {
     const port = String(window.location.port || '').trim();
     const isLocalHost = host === 'localhost' || host === '127.0.0.1';
 
-    if (isLocalHost && port !== '3001') {
-        return `http://${host}:3001/api`;
+    if (isLocalHost && !isSiteApiPort(port)) {
+        return `http://${host}:${getSiteApiLocalPort()}/api`;
     }
 
     // En internet (Nginx), la API debe resolverse por la misma origin en /api.
@@ -10849,30 +10963,19 @@ function resolveApiBase() {
 }
 
 function resolveApiFallbackBases(primaryBase) {
-    const candidates = [];
+    return [];
+}
 
-    const appendCandidate = (value) => {
-        const normalized = normalizeApiBase(value);
-        if (!normalized || normalized === primaryBase || candidates.includes(normalized)) {
-            return;
-        }
-        candidates.push(normalized);
-    };
+// Puerto Node local del sitio y rango que se acepta como propio (assets/site/site.js).
+function getSiteApiLocalPort() {
+    return Number(window.SITE_CONFIG?.api?.localPort) || 3104;
+}
 
-    const host = String(window.location.hostname || '').trim().toLowerCase();
-    const isLocalHost = host === 'localhost' || host === '127.0.0.1';
-
-    if (isLocalHost) {
-        appendCandidate(`http://${host}:3001/api`);
-        if (host === 'localhost') {
-            appendCandidate('http://127.0.0.1:3001/api');
-        } else if (host === '127.0.0.1') {
-            appendCandidate('http://localhost:3001/api');
-        }
-    }
-
-    appendCandidate('/api');
-    return candidates;
+function isSiteApiPort(port) {
+    const range = window.SITE_CONFIG?.api?.portRange;
+    const [min, max] = Array.isArray(range) ? range : [3100, 3199];
+    const value = Number(port);
+    return Number.isInteger(value) && value >= min && value <= max;
 }
 
 function getApiBaseOverride() {
@@ -10904,7 +11007,8 @@ function sanitizeApiBaseOverride(overrideValue) {
         const overridePort = String(parsed.port || '').trim();
         const pagePort = String(window.location.port || '').trim();
 
-        if (pageIsLoopback && overrideIsLoopback && overridePort === '3000') {
+        const overrideInSiaRange = isSiteApiPort(overridePort);
+        if (pageIsLoopback && overrideIsLoopback && !overrideInSiaRange && overridePort !== pagePort) {
             try {
                 window.localStorage.removeItem(API_BASE_STORAGE);
             } catch (storageError) {
@@ -10923,8 +11027,8 @@ function sanitizeApiBaseOverride(overrideValue) {
             return '';
         }
 
-        // Si estamos en internet por 80/443, evitar override duro hacia :3001 del mismo host.
-        if (!pageIsLoopback && pagePort !== '3001' && overrideHost === pageHost && overridePort === '3001') {
+        // En el dominio público se accede por el proxy, no por un puerto Node interno guardado.
+        if (!pageIsLoopback && (!pagePort || pagePort === '80' || pagePort === '443') && overrideHost === pageHost && overrideInSiaRange) {
             try {
                 window.localStorage.removeItem(API_BASE_STORAGE);
             } catch (storageError) {

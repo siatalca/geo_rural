@@ -348,38 +348,27 @@ function normalizeText(value) {
 }
 
 function resolveApiBaseCandidates() {
-    const candidates = [];
-    const appendCandidate = (value) => {
-        const normalized = normalizeApiBase(value);
-        if (!normalized || candidates.includes(normalized)) {
-            return;
-        }
-        candidates.push(normalized);
-    };
+    return [resolveApiBase()];
+}
 
-    appendCandidate(resolveApiBase());
-    appendCandidate('/api');
+// Puerto Node local del sitio y rango que se acepta como propio (assets/site/site.js).
+function getSiteApiLocalPort() {
+    return Number(window.SITE_CONFIG?.api?.localPort) || 3104;
+}
 
-    const host = String(window.location.hostname || '').trim().toLowerCase();
-    const isLocalhost = host === 'localhost' || host === '127.0.0.1';
-    if (isLocalhost) {
-        appendCandidate(`http://${host}:3000/api`);
-        if (host === 'localhost') {
-            appendCandidate('http://127.0.0.1:3000/api');
-        } else if (host === '127.0.0.1') {
-            appendCandidate('http://localhost:3000/api');
-        }
-    }
-
-    return candidates;
+function isSiteApiPort(port) {
+    const range = window.SITE_CONFIG?.api?.portRange;
+    const [min, max] = Array.isArray(range) ? range : [3100, 3199];
+    const value = Number(port);
+    return Number.isInteger(value) && value >= min && value <= max;
 }
 
 function resolveApiBase() {
     const host = String(window.location.hostname || '').trim().toLowerCase();
     const port = String(window.location.port || '').trim();
     const protocol = String(window.location.protocol || '').trim().toLowerCase();
-    if (host && !host.includes(':') && port !== '3000' && protocol !== 'https:') {
-        return `http://${host}:3000/api`;
+    if ((host === 'localhost' || host === '127.0.0.1') && !isSiteApiPort(port) && protocol !== 'https:') {
+        return `http://${host}:${getSiteApiLocalPort()}/api`;
     }
 
     return '/api';

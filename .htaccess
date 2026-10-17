@@ -16,7 +16,7 @@ ServerSignature Off
     RewriteRule ^mantenimiento\.html$ /geo_rural/pages/mantenimiento.html [L]
 
     # Bloquea acceso directo a carpetas internas sensibles.
-    RewriteRule ^(?:database|logs|node_modules|server|\.git)(?:/|$) - [F,L]
+    RewriteRule ^(?:database|logs|node_modules|server|tests|tools|docs|dist|\.[^/]+)(?:/|$) - [F,L]
 </IfModule>
 
 # Bloquea archivos sensibles y de respaldo desde la web.
