@@ -1,9 +1,9 @@
 body {
     margin: 0;
     min-height: 100vh;
-    background: linear-gradient(180deg, #d9e3f6 0%, #f0f4fc 100%);
+    background: linear-gradient(180deg, var(--page-bg-top) 0%, var(--page-bg-bottom) 100%);
     font-family: Arial, sans-serif;
-    color: #2a3d6b;
+    color: var(--brand-dark);
 }
 
 .seguimiento-container {
@@ -17,8 +17,8 @@ body {
 
 .seguimiento-card {
     width: min(960px, 100%);
-    background: #b6c7e3;
-    border: 1px solid #8fa6c9;
+    background: var(--brand-soft);
+    border: 1px solid var(--brand-border);
     border-radius: 14px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
     padding: 22px;
@@ -48,7 +48,7 @@ body {
     object-fit: contain;
     border-radius: 10px;
     background: #ffffff;
-    border: 1px solid #8fa6c9;
+    border: 1px solid var(--brand-border);
     flex: 0 0 auto;
 }
 
@@ -76,10 +76,10 @@ body {
 }
 
 .seguimiento-field input {
-    border: 1px solid #8fa6c9;
+    border: 1px solid var(--brand-border);
     border-radius: 7px;
-    background: #f4f7fb;
-    color: #2a3d6b;
+    background: var(--brand-field);
+    color: var(--brand-dark);
     padding: 9px 10px;
     font-size: 0.95rem;
     box-sizing: border-box;
@@ -101,7 +101,7 @@ body {
 
 .seguimiento-search-btn {
     background: #f1c40f;
-    color: #2a3d6b;
+    color: var(--brand-dark);
     padding: 10px 16px;
 }
 
@@ -127,8 +127,8 @@ body {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    border: 2px solid rgba(42, 61, 107, 0.35);
-    border-top-color: #2a3d6b;
+    border: 2px solid rgba(var(--brand-rgb), 0.35);
+    border-top-color: var(--brand-dark);
     animation: seguimiento-button-spin 0.75s linear infinite;
 }
 
@@ -139,9 +139,9 @@ body {
 }
 
 .seguimiento-clear-btn {
-    background: #e1e8f5;
-    color: #2a3d6b;
-    border: 1px solid #8fa6c9;
+    background: var(--brand-tint);
+    color: var(--brand-dark);
+    border: 1px solid var(--brand-border);
     padding: 10px 16px;
 }
 
@@ -150,14 +150,14 @@ body {
 }
 
 .seguimiento-row-btn {
-    background: #2a3d6b;
+    background: var(--brand-dark);
     color: #ffffff;
     padding: 6px 10px;
     font-size: 0.82rem;
 }
 
 .seguimiento-row-btn:hover {
-    background: #1e2f52;
+    background: var(--brand-darker);
 }
 
 .seguimiento-message {
@@ -178,7 +178,7 @@ body {
 .seguimiento-loader {
     margin-top: 10px;
     margin-bottom: 6px;
-    border: 1px solid #8fa6c9;
+    border: 1px solid var(--brand-border);
     border-radius: 10px;
     background: linear-gradient(130deg, rgba(255, 255, 255, 0.82), rgba(217, 228, 245, 0.95));
     padding: 12px 12px 8px;
@@ -195,21 +195,21 @@ body {
     width: 86px;
     height: 72px;
     border-radius: 7px;
-    background: linear-gradient(180deg, #a5b8d8 0%, #8fa6c9 100%);
-    border: 1px solid #6f86ab;
+    background: linear-gradient(180deg, #a5b8d8 0%, var(--brand-border) 100%);
+    border: 1px solid var(--brand-muted);
     display: flex;
     flex-direction: column;
     justify-content: space-evenly;
     padding: 7px;
     box-sizing: border-box;
-    box-shadow: inset 0 -8px 12px rgba(42, 61, 107, 0.14);
+    box-shadow: inset 0 -8px 12px rgba(var(--brand-rgb), 0.14);
 }
 
 .seguimiento-loader-drawer {
     height: 14px;
     border-radius: 3px;
     background: #dbe6f8;
-    border: 1px solid #8fa6c9;
+    border: 1px solid var(--brand-border);
     position: relative;
     transform-origin: left center;
     animation: seguimiento-drawer-open 1.8s ease-in-out infinite;
@@ -240,7 +240,7 @@ body {
     height: 58px;
     position: relative;
     overflow: hidden;
-    border-bottom: 2px dashed rgba(42, 61, 107, 0.3);
+    border-bottom: 2px dashed rgba(var(--brand-rgb), 0.3);
 }
 
 .seguimiento-loader-file {
@@ -252,7 +252,7 @@ body {
     border-radius: 3px;
     background: linear-gradient(180deg, #f6d449 0%, #efbf21 100%);
     border: 1px solid #b88d0f;
-    box-shadow: 0 2px 4px rgba(42, 61, 107, 0.2);
+    box-shadow: 0 2px 4px rgba(var(--brand-rgb), 0.2);
     animation: seguimiento-file-transfer 1.8s linear infinite;
 }
 
@@ -289,7 +289,7 @@ body {
     width: 96px;
     height: 58px;
     border-radius: 7px;
-    border: 2px solid #6f86ab;
+    border: 2px solid var(--brand-muted);
     background: linear-gradient(180deg, #dce8fa 0%, #b7cae8 100%);
     box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45);
     animation: seguimiento-screen-pulse 1.8s ease-in-out infinite;
@@ -301,14 +301,14 @@ body {
     margin-top: 4px;
     border-radius: 0 0 5px 5px;
     background: #7f95b8;
-    border: 1px solid #6f86ab;
+    border: 1px solid var(--brand-muted);
 }
 
 .seguimiento-loader-text {
     margin: 8px 0 0;
     font-size: 0.84rem;
     font-weight: 700;
-    color: #2a3d6b;
+    color: var(--brand-dark);
 }
 
 .seguimiento-section {
@@ -329,7 +329,7 @@ body {
 
 .seguimiento-table-wrapper {
     overflow-x: auto;
-    border: 1px solid #8fa6c9;
+    border: 1px solid var(--brand-border);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.58);
 }
@@ -350,7 +350,7 @@ body {
 }
 
 .seguimiento-table th {
-    background: #e5edf9;
+    background: var(--brand-tint-2);
     font-weight: 700;
 }
 
@@ -364,7 +364,7 @@ body {
 }
 
 .seguimiento-link-row a {
-    color: #1e2f52;
+    color: var(--brand-darker);
     font-weight: 700;
     text-decoration: none;
 }
@@ -389,8 +389,8 @@ body {
 .seguimiento-notice-card {
     width: min(980px, 100%);
     border-radius: 14px;
-    border: 1px solid #8fa6c9;
-    background: linear-gradient(180deg, #f4f8ff 0%, #d9e6fb 100%);
+    border: 1px solid var(--brand-border);
+    background: linear-gradient(180deg, var(--brand-tint-2) 0%, #d9e6fb 100%);
     box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
     padding: 22px;
     text-align: center;
@@ -399,7 +399,7 @@ body {
 
 .seguimiento-notice-card h2 {
     margin: 0 0 10px;
-    color: #1e2f52;
+    color: var(--brand-darker);
     font-size: clamp(1.45rem, 3.6vw, 2.15rem);
 }
 
@@ -407,7 +407,7 @@ body {
     margin: 0 auto 12px;
     max-width: 780px;
     font-size: clamp(0.98rem, 2vw, 1.25rem);
-    color: #2a3d6b;
+    color: var(--brand-dark);
     font-weight: 700;
     line-height: 1.45;
 }
@@ -465,7 +465,7 @@ body {
 
 .seguimiento-notice-close-btn {
     border: 1px solid #7d95ba;
-    background: #e7eefb;
+    background: var(--brand-tint-2);
     color: #1f3f70;
     cursor: pointer;
 }
@@ -518,10 +518,10 @@ body {
 @keyframes seguimiento-screen-pulse {
     0%,
     100% {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45), 0 0 0 0 rgba(42, 61, 107, 0);
+        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45), 0 0 0 0 rgba(var(--brand-rgb), 0);
     }
     50% {
-        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.62), 0 0 10px 2px rgba(42, 61, 107, 0.18);
+        box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.62), 0 0 10px 2px rgba(var(--brand-rgb), 0.18);
     }
 }
 

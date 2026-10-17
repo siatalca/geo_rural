@@ -1,1 +1,19 @@
-/* Marca Geo Rural: sin ajustes extra; el logo PNG usa los estilos generales de styles.css. Archivo propio de este sitio. */
+/* Marca Geo Rural. Archivo propio de este sitio. */
+
+/* Colores del logo Geo Rural: verde profundo (#007a55), verde limón (#92c23e) y oliva. */
+:root {
+    --brand-dark: #0a5c45;
+    --brand-darker: #063f30;
+    --brand-rgb: 10, 92, 69;
+    --brand-border: #93b98a;
+    --brand-soft: #c2dcae;
+    --brand-line: #c4d8b6;
+    --brand-muted: #5a6b3c;
+    --brand-accent: #2e7d32;
+    --brand-accent-dark: #1f5e23;
+    --brand-tint: #e0eecf;
+    --brand-tint-2: #f0f6e8;
+    --brand-field: #f6faf1;
+    --page-bg-top: #d9ead0;
+    --page-bg-bottom: #f3f8ed;
+}

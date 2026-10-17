@@ -4,9 +4,9 @@ body {
     background:
         radial-gradient(circle at 18% 20%, rgba(255, 224, 157, 0.28), transparent 44%),
         radial-gradient(circle at 82% 0%, rgba(142, 188, 255, 0.26), transparent 40%),
-        linear-gradient(165deg, #f3f5f7 0%, #dbe6f3 54%, #c8d8ed 100%);
+        linear-gradient(165deg, #f3f5f7 0%, var(--brand-tint) 54%, var(--brand-tint) 100%);
     font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-    color: #20344d;
+    color: var(--brand-darker);
 }
 
 .maintenance-container {
@@ -21,7 +21,7 @@ body {
 .maintenance-card {
     width: min(840px, 100%);
     background: rgba(255, 255, 255, 0.96);
-    border: 1px solid #a8bed8;
+    border: 1px solid var(--brand-line);
     border-radius: 18px;
     box-shadow: 0 14px 34px rgba(26, 47, 75, 0.22);
     padding: 22px;
@@ -40,7 +40,7 @@ body {
     object-fit: contain;
     border-radius: 12px;
     background: #ffffff;
-    border: 1px solid #bad0e8;
+    border: 1px solid var(--brand-line);
     flex: 0 0 auto;
 }
 
@@ -63,17 +63,17 @@ body {
 
 .maintenance-lead {
     margin: 0;
-    color: #35506f;
+    color: var(--brand-muted);
 }
 
 .maintenance-public-message {
     margin: 14px 0 0;
-    color: #3a5475;
+    color: var(--brand-muted);
 }
 
 .maintenance-section {
     margin-top: 18px;
-    border-top: 1px solid #c4d4e6;
+    border-top: 1px solid var(--brand-tint);
     padding-top: 14px;
 }
 
@@ -84,7 +84,7 @@ body {
 
 .maintenance-help {
     margin: 0 0 10px;
-    color: #4a6487;
+    color: var(--brand-muted);
     font-size: 0.92rem;
 }
 
@@ -108,10 +108,10 @@ body {
 }
 
 .maintenance-field input {
-    border: 1px solid #a9bfd8;
+    border: 1px solid var(--brand-line);
     border-radius: 8px;
-    background: #f6f9ff;
-    color: #20344d;
+    background: var(--brand-tint-2);
+    color: var(--brand-darker);
     padding: 10px;
     font-size: 0.95rem;
     box-sizing: border-box;
@@ -143,9 +143,9 @@ body {
 }
 
 .maintenance-status-item {
-    border: 1px solid #b8cbe1;
+    border: 1px solid var(--brand-line);
     border-radius: 10px;
-    background: #f4f8ff;
+    background: var(--brand-tint-2);
     padding: 10px;
 }
 
@@ -153,7 +153,7 @@ body {
     display: block;
     margin-bottom: 6px;
     font-size: 0.8rem;
-    color: #547195;
+    color: var(--brand-muted);
 }
 
 .maintenance-status-item strong {
@@ -179,18 +179,18 @@ body {
 }
 
 .primary-btn {
-    background: #1f5fa2;
+    background: var(--brand-accent);
     color: #ffffff;
 }
 
 .secondary-btn {
     background: #f0b429;
-    color: #20344d;
+    color: var(--brand-darker);
 }
 
 .ghost-btn {
-    background: #d7e3f2;
-    color: #1f3c60;
+    background: var(--brand-tint);
+    color: var(--brand-darker);
 }
 
 .primary-btn:hover,
@@ -216,7 +216,7 @@ body {
 
 .maintenance-link-row a,
 .ghost-link-btn {
-    color: #20456d;
+    color: var(--brand-darker);
     text-decoration: none;
     font-weight: 700;
     font-size: 0.9rem;

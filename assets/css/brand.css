@@ -1,3 +1,21 @@
+/* Colores de marca. Valores por defecto (azul); cada sitio los redefine en assets/site/site.css. */
+:root {
+    --brand-dark: #2a3d6b;
+    --brand-darker: #1e2f52;
+    --brand-rgb: 42, 61, 107;
+    --brand-border: #8fa6c9;
+    --brand-soft: #b6c7e3;
+    --brand-line: #b7c7df;
+    --brand-muted: #5b6b8c;
+    --brand-accent: #2f6fb0;
+    --brand-accent-dark: #1f4f8a;
+    --brand-tint: #dbe7f7;
+    --brand-tint-2: #eef3fb;
+    --brand-field: #f4f7fb;
+    --page-bg-top: #d9e3f6;
+    --page-bg-bottom: #f0f4fc;
+}
+
 /* Estilos comunes de login y guía de uso. Los ajustes de marca de cada sitio van en assets/site/site.css. */
 .sia-login-logo {
     display: block;
@@ -8,17 +26,17 @@
 }
 
 body .sia-creator { margin: 20px 0 0; font-size: 0.88rem; }
-.sia-creator a { color: #123d47; font-weight: 700; text-underline-offset: 3px; }
-body .sia-onboarding { width: 720px; background: #f7faf9; padding: clamp(20px, 4vw, 36px); }
-.sia-guide-steps { padding-left: 24px; margin: 24px 0; color: #243e49; }
+.sia-creator a { color: var(--brand-darker); font-weight: 700; text-underline-offset: 3px; }
+body .sia-onboarding { width: 720px; background: var(--brand-tint-2); padding: clamp(20px, 4vw, 36px); }
+.sia-guide-steps { padding-left: 24px; margin: 24px 0; color: var(--brand-dark); }
 .sia-guide-steps li { padding-left: 8px; margin-bottom: 20px; }
 body .sia-guide-steps h3 { font-size: 1rem; margin: 0 0 6px; }
-body .sia-guide-steps p, body .sia-company-note p { margin: 0; line-height: 1.55; color: #304b55; }
-.sia-company-note { border-top: 1px solid #bed0ca; padding-top: 20px; margin: 24px 0; }
-.sia-company-note h3 { color: #193e46; font-size: 1rem; margin: 0 0 8px; }
+body .sia-guide-steps p, body .sia-company-note p { margin: 0; line-height: 1.55; color: var(--brand-dark); }
+.sia-company-note { border-top: 1px solid var(--brand-line); padding-top: 20px; margin: 24px 0; }
+.sia-company-note h3 { color: var(--brand-darker); font-size: 1rem; margin: 0 0 8px; }
 .sia-onboarding .login-btn { width: 100%; }
-.sia-guide-logout { display: block; margin: 16px auto 0; padding: 8px 16px; border: 0; background: none; color: #193e46; text-decoration: underline; cursor: pointer; }
-.sia-onboarding button:focus-visible, .sia-creator a:focus-visible { outline: 3px solid #1c6a58; outline-offset: 4px; }
+.sia-guide-logout { display: block; margin: 16px auto 0; padding: 8px 16px; border: 0; background: none; color: var(--brand-darker); text-decoration: underline; cursor: pointer; }
+.sia-onboarding button:focus-visible, .sia-creator a:focus-visible { outline: 3px solid var(--brand-accent); outline-offset: 4px; }
 .sia-onboarding button:disabled { cursor: wait; opacity: 0.65; }
 
 /* Ayuda breve de botones (assets/js/button-help.js). */
@@ -28,7 +46,7 @@ body .sia-guide-steps p, body .sia-company-note p { margin: 0; line-height: 1.55
     max-width: 280px;
     padding: 7px 10px;
     border-radius: 6px;
-    background: #1f2f52;
+    background: var(--brand-darker);
     color: #fff;
     font-size: 0.82rem;
     font-weight: 400;

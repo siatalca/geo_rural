@@ -8,10 +8,10 @@
     <script src="../../assets/site/site.js?v=20261017-02"></script>
     <script src="../../assets/js/site-brand.js?v=20261017"></script>
     <script src="../../assets/js/button-help.js?v=20261017" defer></script>
-    <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017-02">
+    <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017-03">
     <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
-    <link rel="stylesheet" href="../../styles.css?v=20261017-06">
-    <link rel="stylesheet" href="../../assets/site/site.css?v=20261017">
+    <link rel="stylesheet" href="../../styles.css?v=20261017-08">
+    <link rel="stylesheet" href="../../assets/site/site.css?v=20261017-02">
 </head>
 <body>
     <div id="appTopPanels" class="app-top-panels hidden">
@@ -21,21 +21,42 @@
         </div>
 
         <section id="adminPanel" class="admin-panel hidden">
-            <h3 id="adminPanelTitle">MENU ADMINISTRADOR</h3>
-            <div class="admin-menu-row">
-                <button type="button" id="adminToggleUsersBtn" class="admin-menu-btn">GESTIONAR USUARIOS</button>
-                <button type="button" id="adminToggleBranchesBtn" class="admin-menu-btn">GESTIONAR SUCURSALES</button>
-                <button type="button" id="adminToggleDocumentsBtn" class="admin-menu-btn">GESTIONAR ESTADOS</button>
-                <button type="button" id="adminToggleEmailBtn" class="admin-menu-btn hidden">CONFIGURAR CORREO</button>
-                <button type="button" id="adminToggleMailTemplatesBtn" class="admin-menu-btn hidden">PLANTILLAS CORREO</button>
-                <button type="button" id="adminToggleUsageBtn" class="admin-menu-btn hidden">EQUIPOS ACTIVOS</button>
-                <button type="button" id="adminToggleMaintenanceBtn" class="admin-menu-btn hidden">MODO MANTENCION</button>
-                <button type="button" id="secretariaViewInvoicesBtn" class="admin-menu-btn hidden">FACTURAS SOLICITADAS</button>
-                <button type="button" id="secretariaQuotationBtn" class="admin-menu-btn hidden">COTIZACION</button>
-                <button type="button" id="secretariaEditUtmBtn" class="admin-menu-btn hidden">EDITAR UTM</button>
-                <button type="button" id="secretariaNoMovementBtn" class="admin-menu-btn hidden">SEGUIMIENTO 8+ DIAS</button>
-                <button type="button" id="adminYearCurrentBtn" class="admin-menu-btn admin-mode-btn">ANO ACTUAL</button>
-                <button type="button" id="adminYearPastBtn" class="admin-menu-btn admin-mode-btn">ANOS ANTERIORES</button>
+            <h3 id="adminPanelTitle" class="admin-bar-title">MENU ADMINISTRADOR</h3>
+            <!-- Barra compacta: uso diario a la izquierda, año al centro y lo ocasional en Administración. Los id no cambian. -->
+            <div class="admin-bar" id="adminBar">
+                <div class="admin-bar-daily" id="adminBarDaily">
+                    <button type="button" id="secretariaQuotationBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-quote" aria-hidden="true"></span>Cotización</button>
+                    <button type="button" id="secretariaViewInvoicesBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-invoice" aria-hidden="true"></span>Facturas</button>
+                    <button type="button" id="secretariaEditUtmBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-utm" aria-hidden="true"></span>UTM</button>
+                    <button type="button" id="secretariaNoMovementBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-clock" aria-hidden="true"></span>Sin movimiento</button>
+                </div>
+                <span class="admin-bar-sep" id="adminBarSep" aria-hidden="true"></span>
+                <div class="admin-year-toggle" role="group" aria-label="Año de los ingresos">
+                    <button type="button" id="adminYearCurrentBtn" class="admin-mode-btn">Año actual</button>
+                    <button type="button" id="adminYearPastBtn" class="admin-mode-btn">Años anteriores</button>
+                </div>
+                <span class="admin-bar-spacer"></span>
+                <div class="admin-more" id="adminMore">
+                    <button type="button" id="adminMoreBtn" class="admin-bar-btn admin-more-btn" aria-expanded="false" aria-controls="adminMorePanel"><span class="admin-bar-icon admin-bar-icon-gear" aria-hidden="true"></span>Administración<span class="admin-more-caret" aria-hidden="true"></span></button>
+                    <div id="adminMorePanel" class="admin-more-panel hidden">
+                        <div class="admin-more-group">
+                            <p class="admin-more-heading">Equipo</p>
+                            <button type="button" id="adminToggleUsersBtn" class="admin-more-item">Usuarios</button>
+                            <button type="button" id="adminToggleBranchesBtn" class="admin-more-item">Sucursales</button>
+                            <button type="button" id="adminToggleDocumentsBtn" class="admin-more-item">Estados de carpeta</button>
+                        </div>
+                        <div class="admin-more-group">
+                            <p class="admin-more-heading">Correo</p>
+                            <button type="button" id="adminToggleEmailBtn" class="admin-more-item hidden">Configurar correo</button>
+                            <button type="button" id="adminToggleMailTemplatesBtn" class="admin-more-item hidden">Plantillas</button>
+                        </div>
+                        <div class="admin-more-group">
+                            <p class="admin-more-heading">Sistema</p>
+                            <button type="button" id="adminToggleUsageBtn" class="admin-more-item hidden">Equipos activos</button>
+                            <button type="button" id="adminToggleMaintenanceBtn" class="admin-more-item admin-more-item-danger hidden">Modo mantención</button>
+                        </div>
+                    </div>
+                </div>
             </div>
             <p id="adminYearMessage" class="helper-text admin-year-message"></p>
 
@@ -1372,6 +1393,6 @@
     </script>
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
     <script src="../../assets/js/role-guide.js?v=20261015"></script>
-    <script src="../../script.js?v=20261017-05"></script>
+    <script src="../../script.js?v=20261017-06"></script>
 </body>
 </html>

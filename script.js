@@ -1013,6 +1013,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ui.adminEmailTestBtn.addEventListener('click', () => void handleAdminEmailTest());
     }
     document.getElementById('imprimirSolicitudBtn')?.addEventListener('click', () => void handleImprimirSolicitud());
+    registerAdminBarMenu();
     registerRegistroSideTabListeners();
     registerSolicitudPropietarioPrefill();
     if (ui.adminMailTemplateType) {
@@ -2856,6 +2857,76 @@ const SOLICITUD_FIELD_IDS = Object.freeze({
 let solicitudLoadToken = 0;
 // Mientras sea false, PROPIETARIO copia lo que se escribe en NOMBRE O RAZON SOCIAL.
 let solicitudPropietarioManual = false;
+
+// Menú Administración de la barra compacta: se abre y cierra solo, y se oculta si el rol no tiene opciones.
+// La opcion abierta queda marcada y dice "Cerrar ...": el mismo boton devuelve al formulario.
+function setAdminMoreItemState(button, label, isOpen) {
+    button.textContent = isOpen ? `Cerrar ${label.toLowerCase()}` : label;
+    button.classList.toggle('active', isOpen);
+    button.setAttribute('aria-pressed', String(isOpen));
+}
+
+function setAdminMoreOpen(isOpen) {
+    const button = document.getElementById('adminMoreBtn');
+    const panel = document.getElementById('adminMorePanel');
+    if (!button || !panel) {
+        return;
+    }
+    panel.classList.toggle('hidden', !isOpen);
+    button.setAttribute('aria-expanded', String(isOpen));
+}
+
+function syncAdminBarVisibility() {
+    const panel = document.getElementById('adminMorePanel');
+    if (!panel) {
+        return;
+    }
+    let anyItem = false;
+    panel.querySelectorAll('.admin-more-group').forEach((group) => {
+        const hasItems = Array.from(group.querySelectorAll('.admin-more-item')).some((item) => !item.classList.contains('hidden'));
+        group.classList.toggle('hidden', !hasItems);
+        anyItem = anyItem || hasItems;
+    });
+    document.getElementById('adminMore')?.classList.toggle('hidden', !anyItem);
+    document.getElementById('adminMoreBtn')?.classList.toggle('has-active', Boolean(panel.querySelector('.admin-more-item.active')));
+    const daily = document.getElementById('adminBarDaily');
+    const hasDaily = Boolean(daily) && Array.from(daily.children).some((item) => !item.classList.contains('hidden'));
+    daily?.classList.toggle('hidden', !hasDaily);
+    document.getElementById('adminBarSep')?.classList.toggle('hidden', !hasDaily);
+    if (!anyItem) {
+        setAdminMoreOpen(false);
+    }
+}
+
+function registerAdminBarMenu() {
+    const bar = document.getElementById('adminBar');
+    const button = document.getElementById('adminMoreBtn');
+    const panel = document.getElementById('adminMorePanel');
+    if (!bar || !button || !panel) {
+        return;
+    }
+
+    button.addEventListener('click', () => setAdminMoreOpen(panel.classList.contains('hidden')));
+    panel.addEventListener('click', (event) => {
+        if (event.target.closest('.admin-more-item')) {
+            setAdminMoreOpen(false);
+        }
+    });
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('#adminMore')) {
+            setAdminMoreOpen(false);
+        }
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !panel.classList.contains('hidden')) {
+            setAdminMoreOpen(false);
+            button.focus();
+        }
+    });
+    // Los permisos por rol muestran u ocultan cada boton; la barra se ajusta sola a esos cambios.
+    new MutationObserver(syncAdminBarVisibility).observe(bar, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    syncAdminBarVisibility();
+}
 
 function canUseSolicitudData(user) {
     return (isSecretaryUser(user) || isAdminUser(user) || isSuperUser(user)) && !isGuestUser(user);
@@ -7648,7 +7719,7 @@ function setAdminUsersVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleUsersBtn.textContent = 'GESTIONAR USUARIOS';
+    setAdminMoreItemState(ui.adminToggleUsersBtn, 'Usuarios', isVisible);
     setAdminManagementView(isVisible ? 'users' : 'registro');
 }
 
@@ -7657,7 +7728,7 @@ function setAdminBranchesVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleBranchesBtn.textContent = 'GESTIONAR SUCURSALES';
+    setAdminMoreItemState(ui.adminToggleBranchesBtn, 'Sucursales', isVisible);
     setAdminManagementView(isVisible ? 'branches' : 'registro');
 }
 
@@ -7666,7 +7737,7 @@ function setAdminDocumentsVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleDocumentsBtn.textContent = 'GESTIONAR ESTADOS';
+    setAdminMoreItemState(ui.adminToggleDocumentsBtn, 'Estados de carpeta', isVisible);
     setAdminManagementView(isVisible ? 'documents' : 'registro');
 }
 
@@ -7675,7 +7746,7 @@ function setAdminEmailVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleEmailBtn.textContent = 'CONFIGURAR CORREO';
+    setAdminMoreItemState(ui.adminToggleEmailBtn, 'Configurar correo', isVisible);
     setAdminManagementView(isVisible ? 'email' : 'registro');
 }
 
@@ -7684,7 +7755,7 @@ function setAdminMailTemplatesVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleMailTemplatesBtn.textContent = 'PLANTILLAS CORREO';
+    setAdminMoreItemState(ui.adminToggleMailTemplatesBtn, 'Plantillas', isVisible);
     setAdminManagementView(isVisible ? 'mailTemplates' : 'registro');
 }
 
@@ -7693,7 +7764,7 @@ function setAdminUsageVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleUsageBtn.textContent = 'EQUIPOS ACTIVOS';
+    setAdminMoreItemState(ui.adminToggleUsageBtn, 'Equipos activos', isVisible);
     setAdminManagementView(isVisible ? 'usage' : 'registro');
 }
 
@@ -7702,7 +7773,7 @@ function setAdminMaintenanceVisibility(isVisible) {
         return;
     }
 
-    ui.adminToggleMaintenanceBtn.textContent = 'MODO MANTENCION';
+    setAdminMoreItemState(ui.adminToggleMaintenanceBtn, 'Modo mantención', isVisible);
     setAdminManagementView(isVisible ? 'maintenance' : 'registro');
 }
 
@@ -8115,7 +8186,8 @@ async function setAdminIngresoMode(mode, options = {}) {
     ui.numIngreso.readOnly = true;
     ui.numIngreso.classList.remove('admin-editable');
     ui.numIngresoHint.textContent = 'Modo ANO ACTUAL: autogenerado.';
-    setAdminYearMessage('Modo activo: ANO ACTUAL. El NRO INGRESO se genera automaticamente.');
+    // El selector Año actual / Años anteriores ya muestra el modo; solo el modo historico lleva aviso.
+    setAdminYearMessage('');
     if (refreshIngreso) {
         await loadNextIngreso(ui.numIngreso, ui.formMessage);
     }
