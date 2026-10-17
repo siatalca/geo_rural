@@ -4543,6 +4543,165 @@ async function createHistoryTable() {
     `);
 }
 
+// Datos extra de la solicitud de ingreso (plantilla imprimible). Solo los ven y editan
+// secretaria, admin y super; viven en su propia tabla para no exponerlos en busquedas ni exportaciones.
+const SOLICITUD_FIELDS = Object.freeze([
+    // [clave API, columna, etiqueta, largo maximo]
+    ['domicilio', 'solicitante_domicilio', 'domicilio solicitante', 255],
+    ['propietarioNombre', 'propietario_nombre', 'nombre propietario', 255],
+    ['propietarioRut', 'propietario_rut', 'rut propietario', 20],
+    ['provincia', 'predio_provincia', 'provincia', 120],
+    ['fojas', 'inscripcion_fojas', 'fojas', 40],
+    ['numeroInscripcion', 'inscripcion_numero', 'numero inscripcion', 40],
+    ['anioInscripcion', 'inscripcion_anio', 'anio inscripcion', 10],
+    ['cbr', 'inscripcion_cbr', 'conservador (C.B.R.)', 120],
+    ['rolComuna', 'rol_comuna', 'comuna del rol', 120],
+    ['superficie', 'superficie', 'superficie a subdividir', 80],
+    ['profesionalNombre', 'profesional_nombre', 'nombre profesional', 255],
+    ['profesionalTitulo', 'profesional_titulo', 'titulo profesional', 255]
+]);
+
+function canAccessSolicitudData(user) {
+    return hasBackofficeRegistroAccess(user) && !isGuestUser(user);
+}
+
+// Devuelve { data } con los campos normalizados, { data: null } si no vino solicitud o { error }.
+function parseSolicitudPayload(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return { data: null };
+    }
+
+    const data = {};
+    for (const [key, , label, maxLength] of SOLICITUD_FIELDS) {
+        const value = normalizeText(raw[key]);
+        if (exceedsMaxLength(value, maxLength)) {
+            return { error: `${label.toUpperCase()} excede el maximo permitido de ${maxLength} caracteres.` };
+        }
+        data[key] = value;
+    }
+
+    if (data.propietarioRut) {
+        const formattedRut = normalizeAndFormatRut(data.propietarioRut);
+        if (!formattedRut) {
+            return { error: 'RUT PROPIETARIO invalido. Usa formato 12.345.678-5.' };
+        }
+        data.propietarioRut = formattedRut;
+    }
+
+    return { data };
+}
+
+function toSolicitudApi(row) {
+    const result = {};
+    for (const [key, column] of SOLICITUD_FIELDS) {
+        result[key] = normalizeText(row?.[column]);
+    }
+    return result;
+}
+
+function listSolicitudChanges(beforeRow, data) {
+    const before = toSolicitudApi(beforeRow);
+    return SOLICITUD_FIELDS.filter(([key]) => before[key] !== data[key]).map(([, , label]) => label);
+}
+
+async function getSolicitudRow(db, registroId) {
+    const [rows] = await db.execute('SELECT * FROM registro_solicitud WHERE registro_id = ? LIMIT 1', [registroId]);
+    return rows[0] || null;
+}
+
+async function saveSolicitudRow(db, registroId, data, userName) {
+    const columns = SOLICITUD_FIELDS.map(([, column]) => column);
+    const values = SOLICITUD_FIELDS.map(([key]) => data[key] || null);
+    await db.execute(
+        `
+            INSERT INTO registro_solicitud (registro_id, ${columns.join(', ')}, updated_by)
+            VALUES (?, ${columns.map(() => '?').join(', ')}, ?)
+            ON DUPLICATE KEY UPDATE ${columns.map((column) => `${column} = VALUES(${column})`).join(', ')}, updated_by = VALUES(updated_by)
+        `,
+        [registroId, ...values, userName]
+    );
+}
+
+// Tramo de la tabla de cotizacion que corresponde al numero de lotes ("1 a 6", "7 a 15"...).
+function findCotizacionRowForLotes(numLotes) {
+    const lotes = Number(numLotes);
+    if (!Number.isInteger(lotes) || lotes <= 0) {
+        return null;
+    }
+
+    return (
+        COTIZACION_TEMPLATE_ROWS.find((row) => {
+            const match = /^(\d+)\s*a\s*(\d+)$/i.exec(normalizeText(row.lotes));
+            return match && lotes >= Number(match[1]) && lotes <= Number(match[2]);
+        }) || null
+    );
+}
+
+// Cotizacion de la solicitud con la UTM del mes de ingreso (o la ultima registrada antes de ese mes).
+async function buildSolicitudCotizacion(numLotes, ingresoDate) {
+    const row = findCotizacionRowForLotes(numLotes);
+    if (!row) {
+        return null;
+    }
+
+    const date = ingresoDate instanceof Date && !Number.isNaN(ingresoDate.getTime()) ? ingresoDate : new Date();
+    const anio = date.getFullYear();
+    const mes = date.getMonth() + 1;
+    const [utmRows] = await pool.execute(
+        `
+            SELECT anio, mes, valor
+            FROM utm_mensual
+            WHERE (anio < ?) OR (anio = ? AND mes <= ?)
+            ORDER BY anio DESC, mes DESC
+            LIMIT 1
+        `,
+        [anio, anio, mes]
+    );
+    const utm = utmRows[0];
+    const utmValor = Number(utm?.valor);
+    if (!utm || !Number.isFinite(utmValor) || utmValor <= 0) {
+        return null;
+    }
+
+    const neto = Math.round(row.valorUtm * utmValor);
+    const iva = Math.round(neto * 0.19);
+    return {
+        tramo: row.lotes,
+        valorUtm: row.valorUtm,
+        utmValor,
+        periodoLabel: formatMonthlyPeriodLabel(utm.anio, utm.mes),
+        neto,
+        iva,
+        total: neto + iva
+    };
+}
+
+async function createRegistroSolicitudTable() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS registro_solicitud (
+            registro_id INT UNSIGNED NOT NULL,
+            solicitante_domicilio VARCHAR(255) NULL,
+            propietario_nombre VARCHAR(255) NULL,
+            propietario_rut VARCHAR(20) NULL,
+            predio_provincia VARCHAR(120) NULL,
+            inscripcion_fojas VARCHAR(40) NULL,
+            inscripcion_numero VARCHAR(40) NULL,
+            inscripcion_anio VARCHAR(10) NULL,
+            inscripcion_cbr VARCHAR(120) NULL,
+            rol_comuna VARCHAR(120) NULL,
+            superficie VARCHAR(80) NULL,
+            profesional_nombre VARCHAR(255) NULL,
+            profesional_titulo VARCHAR(255) NULL,
+            updated_by VARCHAR(120) NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (registro_id),
+            CONSTRAINT fk_registro_solicitud_registro FOREIGN KEY (registro_id) REFERENCES registros(id)
+                ON DELETE CASCADE
+        )
+    `);
+}
+
 async function createFacturaSolicitudesTable() {
     await pool.query(`
         CREATE TABLE IF NOT EXISTS factura_solicitudes (
@@ -5263,6 +5422,7 @@ async function initDatabase() {
         await createHistoryTable();
         await ensureHistoryEditColumns();
         await createFacturaSolicitudesTable();
+        await createRegistroSolicitudTable();
         await createRegistroDocumentAlertsTable();
         await createUtmMensualTable();
         await createCotizacionServiciosTable();
@@ -7501,6 +7661,11 @@ app.post('/api/registros', requireWriteAccess, async (req, res) => {
         return res.status(400).json({ message: createLengthError });
     }
 
+    const solicitudPayload = canAccessSolicitudData(req.authUser) ? parseSolicitudPayload(req.body.solicitud) : { data: null };
+    if (solicitudPayload.error) {
+        return res.status(400).json({ message: solicitudPayload.error });
+    }
+
     const parsedFromClient = payload.numIngreso ? parseNumIngreso(payload.numIngreso) : null;
     if (payload.numIngreso && !parsedFromClient) {
         return res.status(400).json({ message: 'NRO INGRESO invalido. Usa formato 123-2026.' });
@@ -7618,6 +7783,10 @@ app.post('/api/registros', requireWriteAccess, async (req, res) => {
             ]
         );
 
+        if (solicitudPayload.data) {
+            await saveSolicitudRow(connection, insertResult.insertId, solicitudPayload.data, userName);
+        }
+
         const historyComment = buildHistoryComment('CREACION', payload.comentario, payload.documentos, []);
         await insertHistoryEntry(connection, {
             registroId: insertResult.insertId,
@@ -7689,6 +7858,11 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
     const updateLengthError = validateRegistroPayloadLengths(payload);
     if (updateLengthError) {
         return res.status(400).json({ message: updateLengthError });
+    }
+
+    const solicitudPayload = canAccessSolicitudData(req.authUser) ? parseSolicitudPayload(req.body.solicitud) : { data: null };
+    if (solicitudPayload.error) {
+        return res.status(400).json({ message: solicitudPayload.error });
     }
 
     const authRole = normalizeUserRole(req.authUser?.role, ROLE_OPERADOR);
@@ -7860,7 +8034,17 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
         const existingComment = normalizeText(existingRows[0].comentario);
         // El comentario se modifica solo via /comentario para evitar mezclas con MODIFICAR.
         payload.comentario = existingComment;
-        const autoGeneratedComment = buildAutomaticModificationComment(existingRows[0], payload, docsAdded, docsRemoved, parsedLotes.value);
+        let autoGeneratedComment = buildAutomaticModificationComment(existingRows[0], payload, docsAdded, docsRemoved, parsedLotes.value);
+        const solicitudChanges = solicitudPayload.data
+            ? listSolicitudChanges(await getSolicitudRow(connection, existingRows[0].id), solicitudPayload.data)
+            : [];
+        if (solicitudChanges.length > 0) {
+            const solicitudText = `datos de solicitud (${solicitudChanges.join(', ')})`;
+            autoGeneratedComment =
+                autoGeneratedComment === 'modificacion sin cambios detectados.'
+                    ? `modificacion de ${solicitudText}`
+                    : `${autoGeneratedComment} | ${solicitudText}`;
+        }
         const hasStructuredChanges = autoGeneratedComment !== 'modificacion sin cambios detectados.';
         if (!hasStructuredChanges) {
             await connection.rollback();
@@ -7937,6 +8121,10 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
                 routeIngreso
             ]
         );
+
+        if (solicitudChanges.length > 0) {
+            await saveSolicitudRow(connection, existingRows[0].id, solicitudPayload.data, userName);
+        }
 
         const historyComment = autoGeneratedComment || 'Registro modificado.';
         await insertHistoryEntry(connection, {
@@ -8862,6 +9050,39 @@ app.get('/api/registros/buscar', async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: 'No fue posible buscar el registro.' });
+    }
+});
+
+app.get('/api/registros/:numIngreso/solicitud', async (req, res) => {
+    try {
+        if (!canAccessSolicitudData(req.authUser)) {
+            return res.status(403).json({ message: 'Solo secretaria, admin o super pueden ver la solicitud de ingreso.' });
+        }
+
+        const numIngreso = normalizeText(decodeURIComponent(req.params.numIngreso));
+        const [rows] = await pool.execute(
+            'SELECT id, num_ingreso, correlativo, anio, num_lotes, created_at FROM registros WHERE num_ingreso = ? LIMIT 1',
+            [numIngreso]
+        );
+        if (!rows.length) {
+            return res.status(404).json({ message: 'Registro no encontrado.' });
+        }
+
+        const registro = rows[0];
+        const createdAt = registro.created_at instanceof Date ? registro.created_at : new Date(registro.created_at);
+        return res.json({
+            solicitud: toSolicitudApi(await getSolicitudRow(pool, registro.id)),
+            impresion: {
+                numIngreso: registro.num_ingreso,
+                correlativo: Number(registro.correlativo),
+                anio: Number(registro.anio),
+                fechaIngreso: Number.isNaN(createdAt.getTime()) ? '' : createdAt.toISOString(),
+                cotizacion: await buildSolicitudCotizacion(registro.num_lotes, createdAt)
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible cargar la solicitud de ingreso.' });
     }
 });
 

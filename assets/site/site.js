@@ -30,6 +30,17 @@
             empresa: 'GEO RURAL VERIFICACIONES LIMITADA',
             direccion: 'Uno Norte N° 801, oficina 306, Talca'
         },
+        // Textos de la solicitud de ingreso imprimible (hoja oficio).
+        solicitudIngreso: {
+            titulo: 'SOLICITUD DE VERIFICACIÓN DE SUBDIVISIÓN DE PREDIO RURAL',
+            notaCotizacion: 'Nota: SI incluye derechos SAG por 1,33 U.T.M. pagaderos al final de las gestiones',
+            clausulas: [
+                '1.- El Solicitante encarga a la empresa Geo Rural Verificaciones Limitada el servicio de verificación de la solicitud de subdivisión de predio rural a que se refieren los antecedentes presentes, de acuerdo a la normativa legal aplicable e instrucciones vigentes del SAG.',
+                '2.- El solicitante se compromete a aportar los antecedentes adicionales que Geo Rural Verificaciones Limitada estime necesarias para la verificación.',
+                '3.- Para todos los efectos, el solicitante señala como forma de comunicación el envío de un correo electrónico a la dirección indicada más arriba.'
+            ],
+            recepcion: 'Constancia recepción Geo Rural Verificaciones Limitada:'
+        },
         demoAddress: 'Uno Norte 801, Oficina 306'
     };
 });

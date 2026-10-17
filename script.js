@@ -799,6 +799,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ui.adminPanel.classList.add('hidden');
     setOperatorBillingVisibility(false);
     setFacturaContainerVisibility(false);
+    setSolicitudContainerVisibility(false);
     syncFacturaNumeroVisibility({ clearOnHide: true });
 
     populateRegiones(ui.region, 'Seleccione region');
@@ -1011,6 +1012,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (ui.adminEmailTestBtn) {
         ui.adminEmailTestBtn.addEventListener('click', () => void handleAdminEmailTest());
     }
+    document.getElementById('imprimirSolicitudBtn')?.addEventListener('click', () => void handleImprimirSolicitud());
     if (ui.adminMailTemplateType) {
         ui.adminMailTemplateType.addEventListener('change', () => {
             persistCurrentAdminTemplateEditorValue();
@@ -1874,6 +1876,7 @@ function showAppForUser(user) {
     resetFacturaForm();
     syncFacturaFromMainForm();
     setFacturaContainerVisibility(canUseFacturaContainer(user));
+    setSolicitudContainerVisibility(canUseSolicitudData(user));
     setComentarioVisibilityByUser(user);
     setGuestReadOnlyUiState(user);
     syncFacturaNumeroVisibility({ clearOnHide: false });
@@ -2194,6 +2197,7 @@ function showAuthCard(message = '') {
     setGuestReadOnlyUiState(null);
     resetFacturaForm();
     setFacturaContainerVisibility(false);
+    setSolicitudContainerVisibility(false);
     setRegistroMainVisibility(true);
     configureIngresoFieldByRole(null);
     updateRegistroActionButtons();
@@ -2620,6 +2624,7 @@ function buildCurrentRegistroSnapshot() {
             observacion: normalizeRegistroSnapshotText(ui?.facturaObservacion?.value),
             montoFacturar: normalizeRegistroSnapshotText(ui?.facturaMonto?.value)
         },
+        solicitud: collectSolicitudData() || null,
         documentos
     };
 }
@@ -2758,6 +2763,214 @@ function setFacturaContainerVisibility(isVisible) {
     }
 
     ui.facturaDataSection.classList.toggle('hidden', !isVisible);
+}
+
+// --- Solicitud de ingreso imprimible: solo secretaria, admin y super ven y editan estos datos. ---
+const SOLICITUD_FIELD_IDS = Object.freeze({
+    domicilio: 'solicitudDomicilio',
+    propietarioNombre: 'solicitudPropietarioNombre',
+    propietarioRut: 'solicitudPropietarioRut',
+    provincia: 'solicitudProvincia',
+    fojas: 'solicitudFojas',
+    numeroInscripcion: 'solicitudNumeroInscripcion',
+    anioInscripcion: 'solicitudAnioInscripcion',
+    cbr: 'solicitudCbr',
+    rolComuna: 'solicitudRolComuna',
+    superficie: 'solicitudSuperficie',
+    profesionalNombre: 'solicitudProfesionalNombre',
+    profesionalTitulo: 'solicitudProfesionalTitulo'
+});
+let solicitudLoadToken = 0;
+
+function canUseSolicitudData(user) {
+    return (isSecretaryUser(user) || isAdminUser(user) || isSuperUser(user)) && !isGuestUser(user);
+}
+
+function setSolicitudContainerVisibility(isVisible) {
+    document.getElementById('solicitudDataSection')?.classList.toggle('hidden', !isVisible);
+}
+
+function resetSolicitudForm() {
+    solicitudLoadToken += 1;
+    Object.values(SOLICITUD_FIELD_IDS).forEach((id) => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.value = '';
+        }
+    });
+}
+
+function collectSolicitudData() {
+    if (!canUseSolicitudData(currentUser)) {
+        return undefined;
+    }
+
+    const data = {};
+    Object.entries(SOLICITUD_FIELD_IDS).forEach(([key, id]) => {
+        data[key] = normalizeInvoiceText(document.getElementById(id)?.value, 255);
+    });
+    return data;
+}
+
+function applySolicitudToForm(solicitud) {
+    const source = solicitud && typeof solicitud === 'object' ? solicitud : {};
+    Object.entries(SOLICITUD_FIELD_IDS).forEach(([key, id]) => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.value = String(source[key] || '');
+        }
+    });
+}
+
+async function loadSolicitudForIngreso(numIngreso) {
+    const routeIngreso = String(numIngreso || '').trim();
+    if (!routeIngreso || !canUseSolicitudData(currentUser)) {
+        return;
+    }
+
+    solicitudLoadToken += 1;
+    const token = solicitudLoadToken;
+    try {
+        const result = await apiRequest(`/registros/${encodeURIComponent(routeIngreso)}/solicitud`);
+        if (token !== solicitudLoadToken) {
+            return;
+        }
+        applySolicitudToForm(result.solicitud);
+        // La solicitud llega despues de cargar el registro: se suma a la foto para detectar cambios reales.
+        if (loadedRegistroSnapshot) {
+            loadedRegistroSnapshot = { ...loadedRegistroSnapshot, solicitud: collectSolicitudData() || null };
+        }
+        updateRegistroActionButtons();
+    } catch (error) {
+        console.warn(`[${APP_NAME}] No fue posible cargar la solicitud de ingreso.`, error);
+    }
+}
+
+async function handleImprimirSolicitud() {
+    if (!canUseSolicitudData(currentUser)) {
+        setFormMessage(ui.formMessage, 'Solo secretaria, admin o super pueden imprimir la solicitud.', 'error');
+        return;
+    }
+
+    const numIngreso = String(loadedIngresoOriginal || '').trim();
+    if (!numIngreso) {
+        setFormMessage(ui.formMessage, 'Guarda o busca el ingreso antes de imprimir la solicitud.', 'error');
+        return;
+    }
+    if (hasPendingLoadedRegistroChanges()) {
+        setFormMessage(ui.formMessage, 'Hay cambios sin guardar. Usa MODIFICAR antes de imprimir la solicitud.', 'error');
+        return;
+    }
+
+    await printSolicitudIngreso(numIngreso, collectFormData(ui.registroForm));
+}
+
+async function printSolicitudIngreso(numIngreso, registro) {
+    try {
+        const result = await apiRequest(`/registros/${encodeURIComponent(numIngreso)}/solicitud`);
+        openSolicitudPrintFrame(buildSolicitudPrintHtml(registro || {}, result.solicitud || {}, result.impresion || {}));
+    } catch (error) {
+        setFormMessage(ui.formMessage, error.message || 'No fue posible preparar la solicitud para imprimir.', 'error');
+    }
+}
+
+function formatSolicitudDate(isoValue) {
+    const date = new Date(isoValue || '');
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+function formatSolicitudPesos(value) {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? `$ ${Math.round(amount).toLocaleString('es-CL')}` : '';
+}
+
+// Hoja oficio con el formato de la solicitud en papel; los textos propios de cada empresa vienen de assets/site/site.js.
+function buildSolicitudPrintHtml(registro, solicitud, impresion) {
+    const texts = SITE.solicitudIngreso || {};
+    const empresa = texts.empresa || SITE.firma?.empresa || APP_NAME;
+    const cot = impresion.cotizacion || null;
+    const v = (value) => escapeHtml(String(value ?? '').trim());
+    const roman = resolveRegionRomanNumeral(registro.region);
+    const numeroFormal = impresion.correlativo
+        ? [impresion.correlativo, impresion.anio, roman].filter(Boolean).join('/')
+        : String(impresion.numIngreso || registro.numIngreso || '');
+    const utmUnits = cot ? Number(cot.valorUtm).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    const section = (title) => `<tr class="sep"><td colspan="4"></td></tr><tr class="head"><td colspan="4">${v(title)}</td></tr>`;
+    const clausulas = (Array.isArray(texts.clausulas) ? texts.clausulas : []).map((line) => `<p>${v(line)}</p>`).join('');
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Solicitud de ingreso ${v(numeroFormal)} ${v(registro.nombre)}</title>
+<style>
+    @page { size: 8.5in 14in; margin: 2.5cm 2cm 2.5cm 3cm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin: 0; font-family: "Courier New", Courier, monospace; font-size: 9.5pt; color: #000; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #000; }
+    td { border: 1px solid #000; padding: 2pt 4pt; vertical-align: top; line-height: 1.35; }
+    .val { text-transform: uppercase; }
+    .mail { text-transform: none; }
+    .title td { background: #d9d9d9; text-align: center; font-weight: 700; font-size: 11pt; padding: 18pt 4pt 2pt; }
+    .head td { background: #d9d9d9; font-weight: 700; font-size: 8.5pt; }
+    .sep td { height: 10pt; border-left: 1px solid #000; border-right: 1px solid #000; }
+    .right { text-align: right; }
+    .clausulas p { margin: 0; }
+    .firma td { height: 90pt; }
+</style>
+</head>
+<body>
+<table>
+    <colgroup><col style="width:26%"><col style="width:26%"><col style="width:24%"><col style="width:24%"></colgroup>
+    <tr class="title"><td colspan="4">${v(texts.titulo || 'SOLICITUD DE INGRESO')}<br>${v(String(empresa).toUpperCase())}</td></tr>
+    <tr><td colspan="2">Fecha ingreso: ${v(formatSolicitudDate(impresion.fechaIngreso))}</td><td colspan="2">N° de ingreso: ${v(numeroFormal)}</td></tr>
+    ${section('DATOS DEL SOLICITANTE:')}
+    <tr><td colspan="4">Nombre solicitante: <span class="val">${v(registro.nombre)}</span></td></tr>
+    <tr><td colspan="2">RUT: ${v(registro.rut)}</td><td colspan="2">Teléfono: ${v(registro.telefono)}</td></tr>
+    <tr><td colspan="4">Domicilio: <span class="val">${v(solicitud.domicilio)}</span></td></tr>
+    <tr><td colspan="4">Correo electrónico: <span class="mail">${v(registro.correo)}</span></td></tr>
+    <tr><td colspan="4">Nombre Propietario (distinto solicitante): <span class="val">${v(solicitud.propietarioNombre)}</span></td></tr>
+    <tr><td colspan="4">RUT Propietario: ${v(solicitud.propietarioRut)}</td></tr>
+    ${section('DATOS DEL PREDIO:')}
+    <tr><td colspan="4">Nombre o ubicación: <span class="val">${v(registro.nombrePredio)}</span></td></tr>
+    <tr><td colspan="2">Comuna: <span class="val">${v(registro.comuna)}</span></td><td>Provincia: <span class="val">${v(solicitud.provincia)}</span></td><td>Región: <span class="val">${v(registro.region)}</span></td></tr>
+    <tr><td>Fs. ${v(solicitud.fojas)}</td><td>N° ${v(solicitud.numeroInscripcion)}</td><td>Año: ${v(solicitud.anioInscripcion)}</td><td>C.B.R.: <span class="val">${v(solicitud.cbr)}</span></td></tr>
+    <tr><td colspan="2">Rol: ${v(registro.rol)}</td><td colspan="2">Comuna: <span class="val">${v(solicitud.rolComuna || registro.comuna)}</span></td></tr>
+    ${section('DATOS DEL PROYECTO DE SUBDIVISIÓN')}
+    <tr><td colspan="2">Número de lotes: ${v(registro.numLotes)}</td><td colspan="2">Superficie a subdividir: <span class="val">${v(solicitud.superficie)}</span></td></tr>
+    <tr><td colspan="2">Nombre profesional: <span class="val">${v(solicitud.profesionalNombre)}</span></td><td colspan="2">Título profesional: <span class="val">${v(solicitud.profesionalTitulo)}</span></td></tr>
+    ${section('COTIZACION PROCEDIMIENTO DE VERIFICACIÓN')}
+    <tr><td colspan="2">Valor U.T.M. ${cot ? v(utmUnits) + ' + IVA' : ''}</td><td colspan="2">Valor en pesos + IVA: ${cot ? v(formatSolicitudPesos(cot.neto)) : ''}</td></tr>
+    <tr><td colspan="2">Valor U.T.M. ${cot ? v(cot.periodoLabel) + ': ' + v(formatSolicitudPesos(cot.utmValor).replace('$ ', '$')) : ''}</td><td colspan="2">I.V.A (19 %) : ${cot ? v(formatSolicitudPesos(cot.iva)) : ''}</td></tr>
+    <tr><td colspan="2">Valor total: (IVA INCL.)</td><td colspan="2" class="right">${cot ? v(formatSolicitudPesos(cot.total)) : ''}</td></tr>
+    ${texts.notaCotizacion ? `<tr><td colspan="4">${v(texts.notaCotizacion)}</td></tr>` : ''}
+    ${section('SOLICITUD')}
+    <tr><td colspan="4" class="clausulas">${clausulas}</td></tr>
+    <tr class="firma"><td colspan="2">Firma Solicitante:</td><td colspan="2">${v(texts.recepcion || `Constancia recepción ${empresa}:`)}</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+// Imprime desde un marco oculto: no abre ventanas emergentes que el navegador pueda bloquear.
+function openSolicitudPrintFrame(html) {
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(frame);
+    const frameDocument = frame.contentDocument;
+    frameDocument.open();
+    frameDocument.write(html);
+    frameDocument.close();
+    frame.contentWindow.onafterprint = () => setTimeout(() => frame.remove(), 500);
+    setTimeout(() => {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+    }, 250);
 }
 
 function normalizeInvoiceText(value, maxLength = 255) {
@@ -6012,6 +6225,8 @@ function registerInvoiceAutofillBindings() {
 }
 
 function resetFacturaForm() {
+    // Al limpiar el formulario tambien se vacian los datos de la solicitud de ingreso.
+    resetSolicitudForm();
     if (!ui) {
         return;
     }
@@ -9871,8 +10086,12 @@ async function handleGuardar() {
             body: JSON.stringify(data)
         });
 
+        const savedIngreso = result.numIngreso || data.numIngreso;
         await resetRegistroFormAfterSubmit();
-        setFormMessage(ui.formMessage, `Registro ${result.numIngreso || data.numIngreso} guardado correctamente.`, 'success');
+        setFormMessage(ui.formMessage, `Registro ${savedIngreso} guardado correctamente.`, 'success');
+        if (canUseSolicitudData(currentUser) && window.confirm(`Registro ${savedIngreso} guardado. ¿Imprimir la solicitud de ingreso?`)) {
+            await printSolicitudIngreso(savedIngreso, data);
+        }
     } catch (error) {
         if (applyRegistroInlineErrorMessage(error.message)) {
             setFormMessage(ui.formMessage, '', '');
@@ -10419,7 +10638,8 @@ function collectFormData(form) {
         estadoCarpeta,
         comentario: comentarioFinal,
         documentos,
-        factura: collectFacturaSnapshotData()
+        factura: collectFacturaSnapshotData(),
+        solicitud: collectSolicitudData()
     };
 }
 
@@ -10452,6 +10672,8 @@ function fillForm(form, data, comunaSelect) {
     resetFacturaForm();
     applyFacturaSnapshotToForm(data.factura);
     syncFacturaNumeroVisibility({ clearOnHide: false });
+    resetSolicitudForm();
+    void loadSolicitudForIngreso(data.numIngreso);
 }
 
 function canEditHistoryComments(user) {
