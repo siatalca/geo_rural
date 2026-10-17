@@ -1014,6 +1014,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     document.getElementById('imprimirSolicitudBtn')?.addEventListener('click', () => void handleImprimirSolicitud());
     registerRegistroSideTabListeners();
+    registerSolicitudPropietarioPrefill();
     if (ui.adminMailTemplateType) {
         ui.adminMailTemplateType.addEventListener('change', () => {
             persistCurrentAdminTemplateEditorValue();
@@ -2853,6 +2854,8 @@ const SOLICITUD_FIELD_IDS = Object.freeze({
     profesionalTitulo: 'solicitudProfesionalTitulo'
 });
 let solicitudLoadToken = 0;
+// Mientras sea false, PROPIETARIO copia lo que se escribe en NOMBRE O RAZON SOCIAL.
+let solicitudPropietarioManual = false;
 
 function canUseSolicitudData(user) {
     return (isSecretaryUser(user) || isAdminUser(user) || isSuperUser(user)) && !isGuestUser(user);
@@ -2865,6 +2868,7 @@ function setSolicitudContainerVisibility(isVisible) {
 
 function resetSolicitudForm() {
     solicitudLoadToken += 1;
+    solicitudPropietarioManual = false;
     Object.values(SOLICITUD_FIELD_IDS).forEach((id) => {
         const input = document.getElementById(id);
         if (input) {
@@ -2892,6 +2896,30 @@ function applySolicitudToForm(solicitud) {
         if (input) {
             input.value = String(source[key] || '');
         }
+    });
+    // Un propietario guardado distinto del solicitante ya fue editado: no se reemplaza al cambiar el nombre.
+    const propietario = String(source.propietarioNombre || '').trim();
+    const nombre = String(document.getElementById('nombre')?.value || '').trim();
+    solicitudPropietarioManual = propietario !== '' && propietario.toLowerCase() !== nombre.toLowerCase();
+}
+
+function registerSolicitudPropietarioPrefill() {
+    const nombreInput = document.getElementById('nombre');
+    const propietarioInput = document.getElementById(SOLICITUD_FIELD_IDS.propietarioNombre);
+    if (!nombreInput || !propietarioInput) {
+        return;
+    }
+
+    const copyNombre = () => {
+        if (!solicitudPropietarioManual && canUseSolicitudData(currentUser)) {
+            propietarioInput.value = nombreInput.value;
+        }
+    };
+    nombreInput.addEventListener('input', copyNombre);
+    nombreInput.addEventListener('change', copyNombre);
+    propietarioInput.addEventListener('input', () => {
+        // Si se borra por completo vuelve a copiar el nombre; si se escribe algo, queda lo escrito.
+        solicitudPropietarioManual = propietarioInput.value.trim() !== '';
     });
 }
 
