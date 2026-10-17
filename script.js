@@ -1013,6 +1013,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ui.adminEmailTestBtn.addEventListener('click', () => void handleAdminEmailTest());
     }
     document.getElementById('imprimirSolicitudBtn')?.addEventListener('click', () => void handleImprimirSolicitud());
+    registerRegistroSideTabListeners();
     if (ui.adminMailTemplateType) {
         ui.adminMailTemplateType.addEventListener('change', () => {
             persistCurrentAdminTemplateEditorValue();
@@ -2763,6 +2764,77 @@ function setFacturaContainerVisibility(isVisible) {
     }
 
     ui.facturaDataSection.classList.toggle('hidden', !isVisible);
+    syncRegistroSideTabs();
+}
+
+// Pestañas del panel lateral. 'hidden' indica el permiso del rol; 'tab-inactive' solo la pestaña no elegida.
+let activeRegistroSideTab = 'solicitudDataSection';
+
+function syncRegistroSideTabs() {
+    const tabBar = document.getElementById('registroSideTabs');
+    if (!tabBar) {
+        return;
+    }
+
+    const buttons = Array.from(tabBar.querySelectorAll('[data-side-tab]'));
+    const allowed = buttons
+        .map((button) => document.getElementById(button.dataset.sideTab))
+        .filter((panel) => panel && !panel.classList.contains('hidden'));
+    const useTabs = allowed.length > 1;
+    if (useTabs && !allowed.some((panel) => panel.id === activeRegistroSideTab)) {
+        activeRegistroSideTab = allowed[0].id;
+    }
+
+    tabBar.classList.toggle('hidden', !useTabs);
+    tabBar.parentElement?.classList.toggle('registro-side-tabbed', useTabs);
+    buttons.forEach((button) => {
+        const panel = document.getElementById(button.dataset.sideTab);
+        const isActive = !useTabs || button.dataset.sideTab === activeRegistroSideTab;
+        button.setAttribute('aria-selected', String(useTabs && isActive));
+        button.tabIndex = isActive ? 0 : -1;
+        panel?.classList.toggle('tab-inactive', !isActive);
+    });
+}
+
+function selectRegistroSideTab(panelId) {
+    activeRegistroSideTab = panelId;
+    syncRegistroSideTabs();
+}
+
+// Si un campo con error esta en la pestaña cerrada, se abre para que se vea.
+function revealRegistroSideTabForField(fieldId) {
+    const panel = document.getElementById(fieldId)?.closest('.registro-side-tab-panel');
+    if (panel && panel.classList.contains('tab-inactive')) {
+        selectRegistroSideTab(panel.id);
+    }
+}
+
+function registerRegistroSideTabListeners() {
+    const tabBar = document.getElementById('registroSideTabs');
+    if (!tabBar) {
+        return;
+    }
+
+    tabBar.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-side-tab]');
+        if (button) {
+            selectRegistroSideTab(button.dataset.sideTab);
+        }
+    });
+    tabBar.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+            return;
+        }
+        const buttons = Array.from(tabBar.querySelectorAll('[data-side-tab]'));
+        const index = buttons.indexOf(document.activeElement);
+        if (index < 0) {
+            return;
+        }
+        const next = buttons[(index + (event.key === 'ArrowRight' ? 1 : buttons.length - 1)) % buttons.length];
+        selectRegistroSideTab(next.dataset.sideTab);
+        next.focus();
+        event.preventDefault();
+    });
 }
 
 // --- Solicitud de ingreso imprimible: solo secretaria, admin y super ven y editan estos datos. ---
@@ -2788,6 +2860,7 @@ function canUseSolicitudData(user) {
 
 function setSolicitudContainerVisibility(isVisible) {
     document.getElementById('solicitudDataSection')?.classList.toggle('hidden', !isVisible);
+    syncRegistroSideTabs();
 }
 
 function resetSolicitudForm() {
@@ -11032,6 +11105,9 @@ function getRegistroFieldErrorElement(fieldId) {
 function setRegistroFieldError(fieldId, message) {
     const normalizedMessage = String(message || '').trim();
     const hasError = normalizedMessage.length > 0;
+    if (hasError) {
+        revealRegistroSideTabForField(fieldId);
+    }
     setRegistroFieldRequiredState(fieldId, hasError);
 
     const messageElement = getRegistroFieldErrorElement(fieldId);

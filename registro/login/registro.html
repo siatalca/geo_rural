@@ -9,7 +9,7 @@
     <script src="../../assets/js/site-brand.js?v=20261017"></script>
     <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017">
     <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
-    <link rel="stylesheet" href="../../styles.css?v=20261017-03">
+    <link rel="stylesheet" href="../../styles.css?v=20261017-04">
     <link rel="stylesheet" href="../../assets/site/site.css?v=20261017">
 </head>
 <body>
@@ -590,7 +590,11 @@
                 </section>
 
                 <section class="registro-panel registro-panel-side">
-                    <section id="solicitudDataSection" class="invoice-data-section solicitud-data-section hidden">
+                    <div id="registroSideTabs" class="registro-side-tabs hidden" role="tablist" aria-label="Datos adicionales del ingreso">
+                        <button type="button" role="tab" class="registro-side-tab" data-side-tab="solicitudDataSection" aria-controls="solicitudDataSection">SOLICITUD</button>
+                        <button type="button" role="tab" class="registro-side-tab" data-side-tab="facturaDataSection" aria-controls="facturaDataSection">FACTURA</button>
+                    </div>
+                    <section id="solicitudDataSection" class="invoice-data-section solicitud-data-section registro-side-tab-panel hidden" role="tabpanel">
                         <h4>DATOS DE LA SOLICITUD</h4>
                         <p class="helper-text">Completan la solicitud de ingreso imprimible. Solo los ven secretaria, admin y super.</p>
                         <div class="form-group">
@@ -653,7 +657,7 @@
                             <button type="button" id="imprimirSolicitudBtn" class="buscar">IMPRIMIR SOLICITUD</button>
                         </div>
                     </section>
-                    <section id="facturaDataSection" class="invoice-data-section hidden">
+                    <section id="facturaDataSection" class="invoice-data-section registro-side-tab-panel hidden" role="tabpanel">
                         <h4>DATOS PARA FACTURA</h4>
                         <div class="form-row form-row-triple">
                             <div class="form-group">
@@ -1367,6 +1371,6 @@
     </script>
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
     <script src="../../assets/js/role-guide.js?v=20261015"></script>
-    <script src="../../script.js?v=20261017-03"></script>
+    <script src="../../script.js?v=20261017-04"></script>
 </body>
 </html>

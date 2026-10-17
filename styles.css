@@ -204,6 +204,55 @@ body.layout-secretaria #registroActionsRow {
     font-size: 0.92em;
 }
 
+/* Pestañas SOLICITUD / FACTURA del panel lateral: aparecen solo cuando el rol ve ambas secciones. */
+.registro-side-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: -1px;
+}
+
+.registro-side-tab {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid #8fa6c9;
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
+    background: rgba(255, 255, 255, 0.2);
+    color: #2a3d6b;
+    font-size: 0.85em;
+}
+
+.registro-side-tab:hover {
+    background: rgba(255, 255, 255, 0.45);
+}
+
+.registro-side-tab[aria-selected="true"] {
+    background: rgba(255, 255, 255, 0.62);
+}
+
+.registro-side-tab:focus-visible {
+    outline: 3px solid #2a3d6b;
+    outline-offset: -3px;
+}
+
+.registro-side-tabbed .registro-side-tab-panel {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.registro-side-tabbed .registro-side-tab-panel > h4 {
+    display: none;
+}
+
+.registro-side-tab-panel.tab-inactive {
+    display: none;
+}
+
+/* Las filas de dos columnas de la solicitud no deben salirse del panel. */
+.solicitud-data-section .form-group {
+    min-width: 0;
+}
+
 .invoice-actions-row {
     display: flex;
     gap: 8px;
