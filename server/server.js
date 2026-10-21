@@ -4407,6 +4407,17 @@ async function ensureColumn(tableName, columnName, definitionSql) {
     }
 }
 
+// Agranda una columna de texto si hoy es mas corta (nunca la achica ni toca los datos).
+async function ensureColumnMinLength(tableName, columnName, minLength, definitionSql) {
+    const [rows] = await pool.query(
+        'SELECT CHARACTER_MAXIMUM_LENGTH AS largo FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+        [tableName, columnName]
+    );
+    if (rows.length && Number(rows[0].largo) < minLength) {
+        await pool.query(`ALTER TABLE \`${cleanDbIdentifier(tableName)}\` MODIFY COLUMN ${definitionSql}`);
+    }
+}
+
 async function ensureUniqueCorrelativoIndex() {
     const [indexes] = await pool.query("SHOW INDEX FROM registros WHERE Key_name = 'uq_anio_correlativo'");
     if (indexes.length > 0) {
@@ -4619,7 +4630,7 @@ const SOLICITUD_FIELDS = Object.freeze([
     ['provincia', 'predio_provincia', 'provincia', 120],
     ['fojas', 'inscripcion_fojas', 'fojas', 40],
     ['numeroInscripcion', 'inscripcion_numero', 'numero inscripcion', 40],
-    ['anioInscripcion', 'inscripcion_anio', 'anio inscripcion', 10],
+    ['anioInscripcion', 'inscripcion_anio', 'anio inscripcion', 20],
     ['cbr', 'inscripcion_cbr', 'conservador (C.B.R.)', 120],
     ['rolComuna', 'rol_comuna', 'comuna del rol', 120],
     ['superficie', 'superficie', 'superficie a subdividir', 80],
@@ -4906,7 +4917,7 @@ async function createRegistroSolicitudTable() {
             predio_provincia VARCHAR(120) NULL,
             inscripcion_fojas VARCHAR(40) NULL,
             inscripcion_numero VARCHAR(40) NULL,
-            inscripcion_anio VARCHAR(10) NULL,
+            inscripcion_anio VARCHAR(20) NULL,
             inscripcion_cbr VARCHAR(120) NULL,
             rol_comuna VARCHAR(120) NULL,
             superficie VARCHAR(80) NULL,
@@ -5645,6 +5656,7 @@ async function initDatabase() {
         await ensureHistoryEditColumns();
         await createFacturaSolicitudesTable();
         await createRegistroSolicitudTable();
+        await ensureColumnMinLength('registro_solicitud', 'inscripcion_anio', 20, '`inscripcion_anio` VARCHAR(20) NULL');
         await createFacturaDocumentosTables();
         await ensureColumn('registro_solicitud', 'solicita_tercero', '`solicita_tercero` TINYINT(1) NULL AFTER propietario_rut');
         await ensureColumn('registro_solicitud', 'tercero_nombre', '`tercero_nombre` VARCHAR(255) NULL AFTER solicita_tercero');
