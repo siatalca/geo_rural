@@ -10,7 +10,7 @@
     <script src="../../assets/js/button-help.js?v=20261017" defer></script>
     <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017-03">
     <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
-    <link rel="stylesheet" href="../../styles.css?v=20261022-02">
+    <link rel="stylesheet" href="../../styles.css?v=20261022-03">
     <link rel="stylesheet" href="../../assets/site/site.css?v=20261017-02">
 </head>
 <body>
@@ -18,10 +18,14 @@
         <div class="session-bar">
             <span id="sessionUser">Sesion no iniciada</span>
             <label id="roleSwitchWrap" class="role-switch hidden">
-                TRABAJANDO COMO
+                <span id="roleSwitchLabel">TRABAJANDO COMO</span>
                 <select id="roleSwitchSelect" aria-label="Rol con el que trabajas" data-help="Tienes dos roles: elige con cuál trabajar. La página se recarga con las opciones de ese rol."></select>
             </label>
             <button type="button" id="logoutBtn" class="logout-btn">CERRAR SESION</button>
+        </div>
+        <div id="superViewAsNotice" class="view-as-notice hidden" role="status">
+            <span id="superViewAsText"></span>
+            <button type="button" id="superViewAsBack" class="admin-cancel-btn" data-help="Vuelve a tu rol Super con todos los permisos.">VOLVER A SUPER</button>
         </div>
 
         <section id="adminPanel" class="admin-panel hidden">
@@ -1562,6 +1566,6 @@
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
     <script src="../../assets/js/role-guide.js?v=20261015"></script>
     <script src="../../script.js?v=20261022-01"></script>
-    <script src="../../assets/js/rol-paneles.js?v=20261022-02"></script>
+    <script src="../../assets/js/rol-paneles.js?v=20261022-03"></script>
 </body>
 </html>

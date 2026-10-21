@@ -310,6 +310,8 @@ const MAINTENANCE_ALLOWED_API_PATHS = new Set([
     '/api/auth/login',
     '/api/auth/logout',
     '/api/auth/me',
+    // Permite al super que esta "viendo como" otro rol volver a SUPER durante la mantencion.
+    '/api/auth/rol-activo',
     '/api/public/system-status',
     '/api/system/mantenimiento'
 ]);
@@ -1878,10 +1880,15 @@ function parseKnownRole(value) {
 }
 
 // Un usuario tiene 1 o 2 roles; SUPER nunca se combina. Devuelve la lista sin repetidos.
+// El SUPER puede "ver como" cualquier rol para revisar lo que ven los demas y hacer pruebas:
+// mientras lo hace, trabaja con los permisos de ese rol y vuelve a SUPER desde el mismo selector.
 function resolveUserRoles(primaryValue, secondaryValue) {
     const primary = normalizeUserRole(primaryValue, ROLE_OPERADOR);
+    if (primary === ROLE_SUPER) {
+        return [ROLE_SUPER, ...KNOWN_ROLES.filter((role) => role !== ROLE_SUPER)];
+    }
     const secondary = parseKnownRole(secondaryValue);
-    if (!secondary || secondary === primary || primary === ROLE_SUPER || secondary === ROLE_SUPER) {
+    if (!secondary || secondary === primary || secondary === ROLE_SUPER) {
         return [primary];
     }
     return [primary, secondary];

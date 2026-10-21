@@ -161,6 +161,21 @@ test('un usuario con dos roles elige con cuál trabaja y no puede tomar otro', a
     assert.equal((await (await f.request('/api/auth/me', null, cookie)).json()).user.role, 'CONTADOR');
 });
 
+test('el SUPER ve como otro rol con sus permisos y vuelve a SUPER', async (t) => {
+    const f = await fixture(t);
+    const password = 'Nueva-para-ver-como-8392!';
+    const first = await f.login();
+    await f.request('/api/auth/change-password', { currentPassword: f.credential.password, newPassword: password }, first.cookie);
+    await f.request('/api/auth/onboarding-complete', {}, first.cookie);
+    const { cookie } = await f.login(password);
+    assert.equal((await f.request('/api/admin/usuarios', null, cookie)).status, 200);
+    assert.equal((await f.request('/api/auth/rol-activo', { role: 'OPERADOR' }, cookie)).status, 200);
+    assert.equal((await (await f.request('/api/auth/me', null, cookie)).json()).user.role, 'OPERADOR');
+    assert.equal((await f.request('/api/admin/usuarios', null, cookie)).status, 403);
+    assert.equal((await f.request('/api/auth/rol-activo', { role: 'SUPER' }, cookie)).status, 200);
+    assert.equal((await f.request('/api/admin/usuarios', null, cookie)).status, 200);
+});
+
 test('SUPER no se combina y un rol adicional repetido se ignora', async (t) => {
     const f = await fixture(t);
     const combinado = await loginAs(f, 'jefe', 'SUPERVISOR', 'SUPERVISOR');

@@ -72,7 +72,11 @@ test('permisos de factura por rol', () => {
 test('un usuario tiene uno o dos roles y SUPER nunca se combina', () => {
     assert.deepEqual(Array.from(s.resolveUserRoles('SECRETARIA', 'CONTADOR')), ['SECRETARIA', 'CONTADOR']);
     assert.deepEqual(Array.from(s.resolveUserRoles('SECRETARIA', 'SECRETARIA')), ['SECRETARIA']);
-    assert.deepEqual(Array.from(s.resolveUserRoles('SUPER', 'CONTADOR')), ['SUPER']);
+    // El SUPER puede ver como cualquier rol (empieza siempre como SUPER).
+    assert.deepEqual(Array.from(s.resolveUserRoles('SUPER', null)), ['SUPER', 'ADMIN', 'SECRETARIA', 'OPERADOR', 'SUPERVISOR', 'CONTADOR']);
+    assert.equal(s.formatAuthUser({ user_id: 1, username: 'admin_sia', role: 'SUPER', active_role: null }).role, 'SUPER');
+    assert.equal(s.formatAuthUser({ user_id: 1, username: 'admin_sia', role: 'SUPER', active_role: 'OPERADOR' }).role, 'OPERADOR');
+    assert.deepEqual(Array.from(s.resolveUserRoles('CONTADOR', 'SUPER')), ['CONTADOR']);
     assert.deepEqual(Array.from(s.resolveUserRoles('CONTADOR', 'INVENTADO')), ['CONTADOR']);
     const user = s.formatAuthUser({ user_id: 1, username: 'k', role: 'SECRETARIA', role_secundario: 'CONTADOR', active_role: 'CONTADOR' });
     assert.equal(user.role, 'CONTADOR');

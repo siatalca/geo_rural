@@ -1865,6 +1865,33 @@ button {
     width: min(520px, 100%);
 }
 
+/* El super viendo el sistema como otro rol. */
+.view-as-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    padding: 8px 12px;
+    border: 1px solid #e2a400;
+    border-left: 5px solid #e2a400;
+    border-radius: 0 8px 8px 0;
+    background: #fff8e4;
+    color: #5a3e00;
+    font-size: 0.88em;
+    font-weight: 700;
+}
+
+.view-as-notice.hidden {
+    display: none;
+}
+
+.view-as-notice button {
+    width: auto;
+    padding: 6px 12px;
+}
+
 /* Aviso de carpetas sin monto a facturar en el dashboard del supervisor. */
 .aviso-monto {
     margin: 10px 0;

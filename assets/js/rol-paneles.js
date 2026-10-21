@@ -85,6 +85,19 @@
         wrap.classList.toggle('hidden', roles.length < 2);
         select.innerHTML = roles.map((role) => `<option value="${esc(role)}">${esc(ROLE_LABELS[role] || role)}</option>`).join('');
         select.value = normalizeUserRole(user.role);
+
+        // El SUPER usa el selector para "ver como" otros roles; mientras no esté como Super, se le avisa.
+        const esSuper = roles[0] === 'SUPER';
+        const label = $('roleSwitchLabel');
+        if (label) label.textContent = esSuper ? 'VER COMO' : 'TRABAJANDO COMO';
+        select.dataset.help = esSuper
+            ? 'Ver el sistema como otro rol, con sus mismos permisos, para revisar o probar. Vuelve a Super cuando termines.'
+            : 'Tienes dos roles: elige con cuál trabajar. La página se recarga con las opciones de ese rol.';
+        const viendoComo = esSuper && normalizeUserRole(user.role) !== 'SUPER';
+        show('superViewAsNotice', viendoComo);
+        if (viendoComo) {
+            $('superViewAsText').textContent = `Estás viendo el sistema como ${ROLE_LABELS[normalizeUserRole(user.role)] || user.role}, con sus mismos permisos. Lo que hagas queda registrado con tu usuario.`;
+        }
     }
 
     async function switchRole(role) {
@@ -119,6 +132,7 @@
     function reset() {
         hidePanels();
         show('roleSwitchWrap', false);
+        show('superViewAsNotice', false);
         closeUpload();
         hideTip();
     }
@@ -557,6 +571,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         $('roleSwitchSelect')?.addEventListener('change', (event) => void switchRole(event.target.value));
+        $('superViewAsBack')?.addEventListener('click', () => void switchRole('SUPER'));
         $('facturaUploadForm')?.addEventListener('submit', (event) => void submitUpload(event));
         $('facturaUploadCancel')?.addEventListener('click', closeUpload);
         $('contadorSearch')?.addEventListener('input', () => contadorData && renderContador(contadorData));
