@@ -1723,6 +1723,11 @@ button {
     min-width: 240px;
 }
 
+.role-block-head button {
+    width: auto;
+    flex: 0 0 auto;
+}
+
 .role-panel td.num,
 .role-panel th.num {
     text-align: right;
