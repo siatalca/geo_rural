@@ -1865,6 +1865,34 @@ button {
     width: min(520px, 100%);
 }
 
+/* Aviso de carpetas sin monto a facturar en el dashboard del supervisor. */
+.aviso-monto {
+    margin: 10px 0;
+    padding: 10px 14px;
+    border: 1px solid #e2a400;
+    border-left: 5px solid #e2a400;
+    border-radius: 0 8px 8px 0;
+    background: #fff8e4;
+    color: #5a3e00;
+    font-size: 0.88em;
+}
+
+.aviso-monto summary {
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.aviso-monto ul {
+    max-height: 200px;
+    margin: 6px 0 0;
+    padding-left: 18px;
+    overflow-y: auto;
+}
+
+.aviso-monto li {
+    padding: 2px 0;
+}
+
 /* Gráficos del dashboard del supervisor. */
 .viz-root {
     --viz-s1: var(--brand-accent);

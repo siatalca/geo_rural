@@ -522,6 +522,16 @@
             tooltip: (r) => `<strong>${esc(r.label)}</strong><br>${r.carpetas} carpetas (${Math.round((r.carpetas / Math.max(k.carpetasPeriodo || 0, 1)) * 100)} % del período)`
         });
 
+        // Aviso de carpetas sin monto a facturar (no suman en los gráficos de montos).
+        const sinMonto = data.sinMonto || { total: 0, carpetas: [] };
+        show('supervisorAvisoMonto', sinMonto.total > 0);
+        if (sinMonto.total > 0) {
+            $('supervisorAvisoMontoTexto').textContent = `${sinMonto.total} ${sinMonto.total === 1 ? 'carpeta del período no tiene' : 'carpetas del período no tienen'} monto a facturar. Ver cuáles`;
+            $('supervisorAvisoMontoLista').innerHTML =
+                sinMonto.carpetas.map((c) => `<li><strong>${esc(c.numIngreso)}</strong> · ${esc(c.cliente)} · ingresada ${fecha(c.fecha)}</li>`).join('') +
+                (sinMonto.total > sinMonto.carpetas.length ? `<li>y ${sinMonto.total - sinMonto.carpetas.length} más.</li>` : '');
+        }
+
         const atencion = data.atencion || [];
         $('supervisorAtencionBody').innerHTML = atencion.length
             ? atencion

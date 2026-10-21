@@ -6603,6 +6603,8 @@ app.get('/api/supervisor/resumen', async (req, res) => {
         const dias = (row) => Math.max(0, Math.floor((ahora - new Date(row.ultimo_movimiento)) / 86400000));
         const atencion = activas.filter((row) => dias(row) >= DIAS_SIN_MOVIMIENTO_ALERTA).sort((a, b) => dias(b) - dias(a));
         const facturadas = periodo.filter((row) => normalizeEstado(row.estado) === 'facturada');
+        // Carpetas del periodo sin monto a facturar: no suman en los graficos de montos.
+        const sinMonto = periodo.filter((row) => monto(row) <= 0).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
         const porMes = [];
         for (let m = meses - 1; m >= 0; m -= 1) {
@@ -6659,6 +6661,14 @@ app.get('/api/supervisor/resumen', async (req, res) => {
             etapas,
             clientes: agrupar(periodo, 'nombre').sort((a, b) => b.monto - a.monto || b.carpetas - a.carpetas).slice(0, 6),
             comunas: agrupar(periodo, 'comuna').sort((a, b) => b.carpetas - a.carpetas).slice(0, 6),
+            sinMonto: {
+                total: sinMonto.length,
+                carpetas: sinMonto.slice(0, 30).map((row) => ({
+                    numIngreso: row.num_ingreso,
+                    cliente: row.nombre,
+                    fecha: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
+                }))
+            },
             atencion: atencion.slice(0, 10).map((row) => ({
                 numIngreso: row.num_ingreso,
                 cliente: row.nombre,

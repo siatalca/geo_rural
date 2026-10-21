@@ -10,7 +10,7 @@
     <script src="../../assets/js/button-help.js?v=20261017" defer></script>
     <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017-03">
     <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
-    <link rel="stylesheet" href="../../styles.css?v=20261022-01">
+    <link rel="stylesheet" href="../../styles.css?v=20261022-02">
     <link rel="stylesheet" href="../../assets/site/site.css?v=20261017-02">
 </head>
 <body>
@@ -530,6 +530,11 @@
                 <select id="supervisorSucursal"><option value="">Todas</option></select>
             </div>
             <p id="supervisorMessage" class="form-message" role="status" aria-live="polite"></p>
+            <details id="supervisorAvisoMonto" class="aviso-monto hidden">
+                <summary id="supervisorAvisoMontoTexto"></summary>
+                <p class="helper-text">Estas carpetas no suman en los montos del dashboard. Completa su MONTO A FACTURAR en el ingreso para incluirlas.</p>
+                <ul id="supervisorAvisoMontoLista"></ul>
+            </details>
             <div class="kpi-grid" id="supervisorKpis"></div>
             <div class="viz-grid">
                 <figure class="viz-card viz-wide">
@@ -1557,6 +1562,6 @@
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
     <script src="../../assets/js/role-guide.js?v=20261015"></script>
     <script src="../../script.js?v=20261022-01"></script>
-    <script src="../../assets/js/rol-paneles.js?v=20261022-01"></script>
+    <script src="../../assets/js/rol-paneles.js?v=20261022-02"></script>
 </body>
 </html>
