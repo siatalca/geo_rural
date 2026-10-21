@@ -1014,7 +1014,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     document.getElementById('imprimirSolicitudBtn')?.addEventListener('click', () => void handleImprimirSolicitud());
     registerAdminBarMenu();
-    registerSolicitudPropietarioPrefill();
+    registerSolicitudTerceroToggle();
     if (ui.adminMailTemplateType) {
         ui.adminMailTemplateType.addEventListener('change', () => {
             persistCurrentAdminTemplateEditorValue();
@@ -2770,8 +2770,8 @@ function setFacturaContainerVisibility(isVisible) {
 // --- Solicitud de ingreso imprimible: solo secretaria, admin y super ven y editan estos datos. ---
 const SOLICITUD_FIELD_IDS = Object.freeze({
     domicilio: 'solicitudDomicilio',
-    propietarioNombre: 'solicitudPropietarioNombre',
-    propietarioRut: 'solicitudPropietarioRut',
+    terceroNombre: 'solicitudTerceroNombre',
+    terceroRut: 'solicitudTerceroRut',
     provincia: 'solicitudProvincia',
     fojas: 'solicitudFojas',
     numeroInscripcion: 'solicitudNumeroInscripcion',
@@ -2783,8 +2783,7 @@ const SOLICITUD_FIELD_IDS = Object.freeze({
     profesionalTitulo: 'solicitudProfesionalTitulo'
 });
 let solicitudLoadToken = 0;
-// Mientras sea false, PROPIETARIO copia lo que se escribe en NOMBRE O RAZON SOCIAL.
-let solicitudPropietarioManual = false;
+let solicitudFieldsVisible = false;
 
 // Menú Administración de la barra compacta: se abre y cierra solo, y se oculta si el rol no tiene opciones.
 // La opcion abierta queda marcada y dice "Cerrar ...": el mismo boton devuelve al formulario.
@@ -2862,18 +2861,34 @@ function canUseSolicitudData(user) {
 
 // Los campos de la solicitud estan repartidos en el formulario de ingreso con la clase solicitud-field.
 function setSolicitudContainerVisibility(isVisible) {
+    solicitudFieldsVisible = isVisible;
     document.querySelectorAll('.solicitud-field').forEach((element) => element.classList.toggle('hidden', !isVisible));
+    syncSolicitudTerceroRow();
+}
+
+// NOMBRE y RUT SOLICITANTE solo aparecen con la casilla "Lo solicita un tercero" marcada.
+function syncSolicitudTerceroRow() {
+    const checked = Boolean(document.getElementById('solicitudTercero')?.checked);
+    document.getElementById('solicitudTerceroRow')?.classList.toggle('hidden', !(solicitudFieldsVisible && checked));
+}
+
+function registerSolicitudTerceroToggle() {
+    document.getElementById('solicitudTercero')?.addEventListener('change', syncSolicitudTerceroRow);
 }
 
 function resetSolicitudForm() {
     solicitudLoadToken += 1;
-    solicitudPropietarioManual = false;
     Object.values(SOLICITUD_FIELD_IDS).forEach((id) => {
         const input = document.getElementById(id);
         if (input) {
             input.value = '';
         }
     });
+    const tercero = document.getElementById('solicitudTercero');
+    if (tercero) {
+        tercero.checked = false;
+    }
+    syncSolicitudTerceroRow();
 }
 
 function collectSolicitudData() {
@@ -2885,6 +2900,7 @@ function collectSolicitudData() {
     Object.entries(SOLICITUD_FIELD_IDS).forEach(([key, id]) => {
         data[key] = normalizeInvoiceText(document.getElementById(id)?.value, 255);
     });
+    data.solicitaTercero = document.getElementById('solicitudTercero')?.checked ? '1' : '';
     return data;
 }
 
@@ -2896,30 +2912,11 @@ function applySolicitudToForm(solicitud) {
             input.value = String(source[key] || '');
         }
     });
-    // Un propietario guardado distinto del solicitante ya fue editado: no se reemplaza al cambiar el nombre.
-    const propietario = String(source.propietarioNombre || '').trim();
-    const nombre = String(document.getElementById('nombre')?.value || '').trim();
-    solicitudPropietarioManual = propietario !== '' && propietario.toLowerCase() !== nombre.toLowerCase();
-}
-
-function registerSolicitudPropietarioPrefill() {
-    const nombreInput = document.getElementById('nombre');
-    const propietarioInput = document.getElementById(SOLICITUD_FIELD_IDS.propietarioNombre);
-    if (!nombreInput || !propietarioInput) {
-        return;
+    const tercero = document.getElementById('solicitudTercero');
+    if (tercero) {
+        tercero.checked = source.solicitaTercero === '1';
     }
-
-    const copyNombre = () => {
-        if (!solicitudPropietarioManual && canUseSolicitudData(currentUser)) {
-            propietarioInput.value = nombreInput.value;
-        }
-    };
-    nombreInput.addEventListener('input', copyNombre);
-    nombreInput.addEventListener('change', copyNombre);
-    propietarioInput.addEventListener('input', () => {
-        // Si se borra por completo vuelve a copiar el nombre; si se escribe algo, queda lo escrito.
-        solicitudPropietarioManual = propietarioInput.value.trim() !== '';
-    });
+    syncSolicitudTerceroRow();
 }
 
 async function loadSolicitudForIngreso(numIngreso) {
@@ -3001,6 +2998,10 @@ function buildSolicitudPrintHtml(registro, solicitud, impresion) {
     const utmUnits = cot ? Number(cot.valorUtm).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
     const section = (title) => `<tr class="sep"><td colspan="4"></td></tr><tr class="head"><td colspan="4">${v(title)}</td></tr>`;
     const clausulas = (Array.isArray(texts.clausulas) ? texts.clausulas : []).map((line) => `<p>${v(line)}</p>`).join('');
+    // Con tercero, el tercero es el solicitante y el nombre del ingreso es el propietario; si no, la linea de propietario va en blanco.
+    const conTercero = solicitud.solicitaTercero === '1';
+    const solicitante = conTercero ? { nombre: solicitud.terceroNombre, rut: solicitud.terceroRut } : { nombre: registro.nombre, rut: registro.rut };
+    const propietario = conTercero ? { nombre: registro.nombre, rut: registro.rut } : { nombre: '', rut: '' };
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -3029,12 +3030,12 @@ function buildSolicitudPrintHtml(registro, solicitud, impresion) {
     <tr class="title"><td colspan="4">${v(texts.titulo || 'SOLICITUD DE INGRESO')}<br>${v(String(empresa).toUpperCase())}</td></tr>
     <tr><td colspan="2">Fecha ingreso: ${v(formatSolicitudDate(impresion.fechaIngreso))}</td><td colspan="2">N° de ingreso: ${v(numeroFormal)}</td></tr>
     ${section('DATOS DEL SOLICITANTE:')}
-    <tr><td colspan="4">Nombre solicitante: <span class="val">${v(registro.nombre)}</span></td></tr>
-    <tr><td colspan="2">RUT: ${v(registro.rut)}</td><td colspan="2">Teléfono: ${v(registro.telefono)}</td></tr>
+    <tr><td colspan="4">Nombre solicitante: <span class="val">${v(solicitante.nombre)}</span></td></tr>
+    <tr><td colspan="2">RUT: ${v(solicitante.rut)}</td><td colspan="2">Teléfono: ${v(registro.telefono)}</td></tr>
     <tr><td colspan="4">Domicilio: <span class="val">${v(solicitud.domicilio)}</span></td></tr>
     <tr><td colspan="4">Correo electrónico: <span class="mail">${v(registro.correo)}</span></td></tr>
-    <tr><td colspan="4">Nombre Propietario (distinto solicitante): <span class="val">${v(solicitud.propietarioNombre)}</span></td></tr>
-    <tr><td colspan="4">RUT Propietario: ${v(solicitud.propietarioRut)}</td></tr>
+    <tr><td colspan="4">Nombre Propietario (distinto solicitante): <span class="val">${v(propietario.nombre)}</span></td></tr>
+    <tr><td colspan="4">RUT Propietario: ${v(propietario.rut)}</td></tr>
     ${section('DATOS DEL PREDIO:')}
     <tr><td colspan="4">Nombre o ubicación: <span class="val">${v(registro.nombrePredio)}</span></td></tr>
     <tr><td colspan="2">Comuna: <span class="val">${v(registro.comuna)}</span></td><td>Provincia: <span class="val">${v(solicitud.provincia)}</span></td><td>Región: <span class="val">${v(registro.region)}</span></td></tr>

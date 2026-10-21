@@ -1629,3 +1629,33 @@ button {
         width: 100%;
     }
 }
+
+/* Casilla "Lo solicita un tercero" del formulario de ingreso. */
+.solicitud-check-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.solicitud-check-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+    accent-color: var(--brand-accent);
+}
+
+/* Divisiones por tema del formulario de ingreso (cliente, predio, proyecto, facturación). */
+.form-section-title {
+    margin: 18px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--brand-line);
+    color: var(--brand-dark);
+    font-size: 0.85em;
+    letter-spacing: 0.04em;
+}
+
+.registro-panel-main .form-section-title:first-of-type {
+    margin-top: 6px;
+}

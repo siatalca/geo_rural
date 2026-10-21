@@ -10,7 +10,7 @@
     <script src="../../assets/js/button-help.js?v=20261017" defer></script>
     <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017-03">
     <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
-    <link rel="stylesheet" href="../../styles.css?v=20261021-01">
+    <link rel="stylesheet" href="../../styles.css?v=20261021-03">
     <link rel="stylesheet" href="../../assets/site/site.css?v=20261017-02">
 </head>
 <body>
@@ -518,12 +518,14 @@
                         <small id="numIngresoHint" class="input-hint">Autogenerado.</small>
                     </div>
 
+                    <h4 class="form-section-title">DATOS DEL CLIENTE</h4>
+
                     <div class="form-group">
                         <label for="nombre">NOMBRE O RAZON SOCIAL</label>
                         <input type="text" id="nombre" name="nombre" required>
                     </div>
 
-                    <div class="form-row">
+                    <div class="form-row form-row-triple">
                         <div class="form-group">
                             <label for="rut">RUT</label>
                             <input type="text" id="rut" name="rut" placeholder="12.345.678-9" required>
@@ -532,6 +534,10 @@
                             <label for="telefono">TELEFONO</label>
                             <input type="text" id="telefono" name="telefono">
                         </div>
+                        <div class="form-group">
+                            <label for="correo">CORREO</label>
+                            <input type="email" id="correo" name="correo">
+                        </div>
                     </div>
 
                     <div class="form-group solicitud-field hidden">
@@ -539,11 +545,27 @@
                         <input type="text" id="solicitudDomicilio" maxlength="255">
                     </div>
 
-                    <div class="form-row form-row-triple">
+                    <div class="form-group solicitud-field solicitud-check hidden">
+                        <label class="solicitud-check-label" for="solicitudTercero">
+                            <input type="checkbox" id="solicitudTercero">
+                            LO SOLICITA UN TERCERO (DISTINTO DEL PROPIETARIO O LA EMPRESA)
+                        </label>
+                    </div>
+
+                    <div class="form-row solicitud-field hidden" id="solicitudTerceroRow">
                         <div class="form-group">
-                            <label for="correo">CORREO</label>
-                            <input type="email" id="correo" name="correo">
+                            <label for="solicitudTerceroNombre">NOMBRE SOLICITANTE</label>
+                            <input type="text" id="solicitudTerceroNombre" maxlength="255">
                         </div>
+                        <div class="form-group">
+                            <label for="solicitudTerceroRut">RUT SOLICITANTE</label>
+                            <input type="text" id="solicitudTerceroRut" maxlength="20" placeholder="12.345.678-9">
+                        </div>
+                    </div>
+
+                    <h4 class="form-section-title">DATOS DEL PREDIO</h4>
+
+                    <div class="form-row form-row-triple">
                         <div class="form-group">
                             <label for="region">REGION</label>
                             <select id="region" name="region" required>
@@ -556,16 +578,9 @@
                                 <option value="">Seleccione comuna</option>
                             </select>
                         </div>
-                    </div>
-
-                    <div class="form-row solicitud-field hidden">
-                        <div class="form-group">
-                            <label for="solicitudPropietarioNombre">PROPIETARIO (SI ES DISTINTO)</label>
-                            <input type="text" id="solicitudPropietarioNombre" maxlength="255">
-                        </div>
-                        <div class="form-group">
-                            <label for="solicitudPropietarioRut">RUT PROPIETARIO</label>
-                            <input type="text" id="solicitudPropietarioRut" maxlength="20" placeholder="12.345.678-9">
+                        <div class="form-group solicitud-field hidden">
+                            <label for="solicitudProvincia">PROVINCIA</label>
+                            <input type="text" id="solicitudProvincia" maxlength="120">
                         </div>
                     </div>
 
@@ -574,11 +589,22 @@
                         <input type="text" id="nombrePredio" name="nombrePredio">
                     </div>
 
-                    <div class="form-row form-row-triple solicitud-field hidden">
+                    <div class="form-row form-row-triple">
                         <div class="form-group">
-                            <label for="solicitudProvincia">PROVINCIA</label>
-                            <input type="text" id="solicitudProvincia" maxlength="120">
+                            <label for="rol">ROL</label>
+                            <input type="text" id="rol" name="rol" required>
                         </div>
+                        <div class="form-group solicitud-field hidden">
+                            <label for="solicitudRolComuna">COMUNA DEL ROL</label>
+                            <input type="text" id="solicitudRolComuna" maxlength="120" placeholder="Igual a la del predio">
+                        </div>
+                        <div class="form-group solicitud-field hidden">
+                            <label for="solicitudCbr">CONSERVADOR (C.B.R.)</label>
+                            <input type="text" id="solicitudCbr" maxlength="120">
+                        </div>
+                    </div>
+
+                    <div class="form-row form-row-triple solicitud-field hidden">
                         <div class="form-group">
                             <label for="solicitudFojas">FOJAS</label>
                             <input type="text" id="solicitudFojas" maxlength="40">
@@ -587,46 +613,26 @@
                             <label for="solicitudNumeroInscripcion">N° INSCRIPCION</label>
                             <input type="text" id="solicitudNumeroInscripcion" maxlength="40">
                         </div>
-                    </div>
-
-                    <div class="form-row form-row-triple solicitud-field hidden">
                         <div class="form-group">
                             <label for="solicitudAnioInscripcion">AÑO INSCRIPCION</label>
                             <input type="text" id="solicitudAnioInscripcion" maxlength="10">
                         </div>
-                        <div class="form-group">
-                            <label for="solicitudCbr">CONSERVADOR (C.B.R.)</label>
-                            <input type="text" id="solicitudCbr" maxlength="120">
-                        </div>
-                        <div class="form-group">
-                            <label for="solicitudRolComuna">COMUNA DEL ROL</label>
-                            <input type="text" id="solicitudRolComuna" maxlength="120" placeholder="Igual a la del predio">
-                        </div>
                     </div>
 
+                    <h4 class="form-section-title">DATOS DEL PROYECTO</h4>
+
                     <div class="form-row form-row-triple">
-                        <div class="form-group">
-                            <label for="rol">ROL</label>
-                            <input type="text" id="rol" name="rol" required>
-                        </div>
                         <div class="form-group">
                             <label for="numLotes">NRO DE LOTES</label>
                             <input type="number" id="numLotes" name="numLotes" min="1" step="1">
                         </div>
-                        <div class="form-group">
-                            <label for="estado">ESTADO FACTURA</label>
-                            <select id="estado" name="estado">
-                                <option value="no_facturada" selected>No facturada</option>
-                                <option value="facturada">Facturada</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="form-row form-row-triple solicitud-field hidden">
-                        <div class="form-group">
+                        <div class="form-group solicitud-field hidden">
                             <label for="solicitudSuperficie">SUPERFICIE A SUBDIVIDIR</label>
                             <input type="text" id="solicitudSuperficie" maxlength="80" placeholder="Ej: 26,90 HAS.">
                         </div>
+                    </div>
+
+                    <div class="form-row solicitud-field hidden">
                         <div class="form-group">
                             <label for="solicitudProfesionalNombre">NOMBRE PROFESIONAL</label>
                             <input type="text" id="solicitudProfesionalNombre" maxlength="255">
@@ -634,6 +640,18 @@
                         <div class="form-group">
                             <label for="solicitudProfesionalTitulo">TITULO PROFESIONAL</label>
                             <input type="text" id="solicitudProfesionalTitulo" maxlength="255">
+                        </div>
+                    </div>
+
+                    <h4 class="form-section-title">FACTURACION Y SEGUIMIENTO</h4>
+
+                    <div class="form-row form-row-triple">
+                        <div class="form-group">
+                            <label for="estado">ESTADO FACTURA</label>
+                            <select id="estado" name="estado">
+                                <option value="no_facturada" selected>No facturada</option>
+                                <option value="facturada">Facturada</option>
+                            </select>
                         </div>
                     </div>
 
@@ -1388,6 +1406,6 @@
     </script>
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
     <script src="../../assets/js/role-guide.js?v=20261015"></script>
-    <script src="../../script.js?v=20261021-01"></script>
+    <script src="../../script.js?v=20261021-02"></script>
 </body>
 </html>

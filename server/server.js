@@ -4548,8 +4548,10 @@ async function createHistoryTable() {
 const SOLICITUD_FIELDS = Object.freeze([
     // [clave API, columna, etiqueta, largo maximo]
     ['domicilio', 'solicitante_domicilio', 'domicilio solicitante', 255],
-    ['propietarioNombre', 'propietario_nombre', 'nombre propietario', 255],
-    ['propietarioRut', 'propietario_rut', 'rut propietario', 20],
+    // Marcado: lo solicita un tercero; el nombre y RUT del ingreso pasan a ser el propietario.
+    ['solicitaTercero', 'solicita_tercero', 'solicita un tercero', 1],
+    ['terceroNombre', 'tercero_nombre', 'nombre solicitante', 255],
+    ['terceroRut', 'tercero_rut', 'rut solicitante', 20],
     ['provincia', 'predio_provincia', 'provincia', 120],
     ['fojas', 'inscripcion_fojas', 'fojas', 40],
     ['numeroInscripcion', 'inscripcion_numero', 'numero inscripcion', 40],
@@ -4573,19 +4575,23 @@ function parseSolicitudPayload(raw) {
 
     const data = {};
     for (const [key, , label, maxLength] of SOLICITUD_FIELDS) {
-        const value = normalizeText(raw[key]);
+        const value = key === 'solicitaTercero' ? (['1', 'true', 'on', 'si'].includes(String(raw[key]).toLowerCase()) ? '1' : '') : normalizeText(raw[key]);
         if (exceedsMaxLength(value, maxLength)) {
             return { error: `${label.toUpperCase()} excede el maximo permitido de ${maxLength} caracteres.` };
         }
         data[key] = value;
     }
 
-    if (data.propietarioRut) {
-        const formattedRut = normalizeAndFormatRut(data.propietarioRut);
+    if (!data.solicitaTercero) {
+        data.terceroNombre = '';
+        data.terceroRut = '';
+    }
+    if (data.terceroRut) {
+        const formattedRut = normalizeAndFormatRut(data.terceroRut);
         if (!formattedRut) {
-            return { error: 'RUT PROPIETARIO invalido. Usa formato 12.345.678-5.' };
+            return { error: 'RUT SOLICITANTE invalido. Usa formato 12.345.678-5.' };
         }
-        data.propietarioRut = formattedRut;
+        data.terceroRut = formattedRut;
     }
 
     return { data };
@@ -4683,6 +4689,9 @@ async function createRegistroSolicitudTable() {
             solicitante_domicilio VARCHAR(255) NULL,
             propietario_nombre VARCHAR(255) NULL,
             propietario_rut VARCHAR(20) NULL,
+            solicita_tercero TINYINT(1) NULL,
+            tercero_nombre VARCHAR(255) NULL,
+            tercero_rut VARCHAR(20) NULL,
             predio_provincia VARCHAR(120) NULL,
             inscripcion_fojas VARCHAR(40) NULL,
             inscripcion_numero VARCHAR(40) NULL,
@@ -5423,6 +5432,9 @@ async function initDatabase() {
         await ensureHistoryEditColumns();
         await createFacturaSolicitudesTable();
         await createRegistroSolicitudTable();
+        await ensureColumn('registro_solicitud', 'solicita_tercero', '`solicita_tercero` TINYINT(1) NULL AFTER propietario_rut');
+        await ensureColumn('registro_solicitud', 'tercero_nombre', '`tercero_nombre` VARCHAR(255) NULL AFTER solicita_tercero');
+        await ensureColumn('registro_solicitud', 'tercero_rut', '`tercero_rut` VARCHAR(20) NULL AFTER tercero_nombre');
         await createRegistroDocumentAlertsTable();
         await createUtmMensualTable();
         await createCotizacionServiciosTable();
