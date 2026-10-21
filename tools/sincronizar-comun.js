@@ -19,6 +19,7 @@ const COMMON_FILES = [
     'assets/js/role-guide.js',
     'assets/js/site-brand.js',
     'assets/js/button-help.js',
+    'assets/js/rol-paneles.js',
     'assets/js/pages/seguimiento.js',
     'assets/js/pages/mantenimiento.js',
     'assets/css/brand.css',
@@ -27,6 +28,7 @@ const COMMON_FILES = [
     'tests/api-origin.test.js',
     'tests/bootstrap.test.js',
     'tests/server.test.js',
+    'tests/facturas-roles.test.js',
     'tools/sincronizar-comun.js',
     'docs/CODIGO_COMUN.md'
 ];

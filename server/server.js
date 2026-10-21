@@ -118,9 +118,11 @@ const ROLE_SECRETARIA = 'SECRETARIA';
 const ROLE_OPERADOR = 'OPERADOR';
 const ROLE_SUPERVISOR = 'SUPERVISOR';
 const ROLE_SUPER = 'SUPER';
+const ROLE_CONTADOR = 'CONTADOR';
+const KNOWN_ROLES = Object.freeze(['SUPER', 'ADMIN', 'SECRETARIA', 'OPERADOR', 'SUPERVISOR', 'CONTADOR']);
 const PRIVILEGED_ROLES = Object.freeze([ROLE_ADMIN, ROLE_SUPER]);
-const ASSIGNABLE_ROLES_BY_ADMIN = Object.freeze([ROLE_ADMIN, ROLE_SECRETARIA, ROLE_OPERADOR, ROLE_SUPERVISOR]);
-const ASSIGNABLE_ROLES_BY_SUPER = Object.freeze([ROLE_SUPER, ROLE_ADMIN, ROLE_SECRETARIA, ROLE_OPERADOR, ROLE_SUPERVISOR]);
+const ASSIGNABLE_ROLES_BY_ADMIN = Object.freeze([ROLE_ADMIN, ROLE_SECRETARIA, ROLE_OPERADOR, ROLE_SUPERVISOR, ROLE_CONTADOR]);
+const ASSIGNABLE_ROLES_BY_SUPER = Object.freeze([ROLE_SUPER, ROLE_ADMIN, ROLE_SECRETARIA, ROLE_OPERADOR, ROLE_SUPERVISOR, ROLE_CONTADOR]);
 const SUPERUSER_USERNAME = 'admin_sia';
 const GUEST_USERNAME = normalizeText(process.env.GUEST_USERNAME || 'invitado').toLowerCase() || 'invitado';
 const DEFAULT_CREATION_COMMENT = 'creacion y recepcion al iniciar un nuevo registro';
@@ -365,7 +367,8 @@ app.use(
             return callback(null, false);
         },
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'X-API-Key'],
+        // X-Factura-*: folio, fecha de emision y motivo al subir el PDF de una factura.
+        allowedHeaders: ['Content-Type', 'X-API-Key', 'X-Factura-Folio', 'X-Factura-Fecha', 'X-Factura-Motivo'],
         credentials: true,
         maxAge: 600
     })
@@ -1222,6 +1225,9 @@ function normalizeUserRole(value, fallbackRole = ROLE_OPERADOR) {
     if (role === ROLE_SUPERVISOR) {
         return ROLE_SUPERVISOR;
     }
+    if (role === ROLE_CONTADOR) {
+        return ROLE_CONTADOR;
+    }
 
     const fallback = String(fallbackRole || '').trim().toUpperCase();
     if (
@@ -1229,7 +1235,8 @@ function normalizeUserRole(value, fallbackRole = ROLE_OPERADOR) {
         fallback === ROLE_ADMIN ||
         fallback === ROLE_SECRETARIA ||
         fallback === ROLE_OPERADOR ||
-        fallback === ROLE_SUPERVISOR
+        fallback === ROLE_SUPERVISOR ||
+        fallback === ROLE_CONTADOR
     ) {
         return fallback;
     }
@@ -1864,15 +1871,56 @@ function extractBearerToken(req) {
     return normalizeText(cookies[SESSION_COOKIE_NAME]);
 }
 
+// Rol valido o '' (sin caer en OPERADOR como normalizeUserRole).
+function parseKnownRole(value) {
+    const role = normalizeText(value).toUpperCase();
+    return KNOWN_ROLES.includes(role) ? role : '';
+}
+
+// Un usuario tiene 1 o 2 roles; SUPER nunca se combina. Devuelve la lista sin repetidos.
+function resolveUserRoles(primaryValue, secondaryValue) {
+    const primary = normalizeUserRole(primaryValue, ROLE_OPERADOR);
+    const secondary = parseKnownRole(secondaryValue);
+    if (!secondary || secondary === primary || primary === ROLE_SUPER || secondary === ROLE_SUPER) {
+        return [primary];
+    }
+    return [primary, secondary];
+}
+
+// Valida el rol adicional que envía el formulario de usuarios. { value: 'ROL' | null } o { error }.
+function resolveSecondaryRoleInput(raw, primaryRole, authUser) {
+    const value = normalizeText(raw).toUpperCase();
+    if (!value) {
+        return { value: null };
+    }
+    if (!KNOWN_ROLES.includes(value) || !getAssignableRolesForUser(authUser).includes(value)) {
+        return { error: `ROL ADICIONAL invalido. Usa ${formatAssignableRolesLabel(authUser)}.` };
+    }
+    if (value === primaryRole) {
+        return { error: 'El rol adicional debe ser distinto del rol principal.' };
+    }
+    if (value === ROLE_SUPER || primaryRole === ROLE_SUPER) {
+        return { error: 'El rol SUPER no se combina con otro rol: ya tiene todos los permisos.' };
+    }
+    if (value === ROLE_ADMIN && !isSuperUser(authUser)) {
+        return { error: 'Solo el superusuario puede asignar el rol ADMIN.' };
+    }
+    return { value };
+}
+
 function formatAuthUser(row) {
     const username = normalizeText(row.username).toLowerCase();
+    const roles = resolveUserRoles(row.role, row.role_secundario);
+    const activeRole = roles.includes(parseKnownRole(row.active_role)) ? parseKnownRole(row.active_role) : roles[0];
 
     return {
         id: row.user_id,
         username: row.username,
         nombre: row.nombre || row.username,
         sucursal: row.sucursal || '',
-        role: normalizeUserRole(row.role, ROLE_OPERADOR),
+        // role es el rol con el que trabaja ahora (define permisos); roles, los que tiene asignados.
+        role: activeRole,
+        roles,
         mustChangePassword: Number(row.must_change_password || 0) === 1,
         onboardingPending: Number(row.onboarding_pending || 0) === 1,
         isGuest: username === GUEST_USERNAME
@@ -2314,7 +2362,14 @@ function toFacturaSolicitudRow(row) {
         createdBy: row.created_by || '',
         sucursal: row.created_by_sucursal || '',
         sentAt,
-        createdAt
+        createdAt,
+        // Factura en PDF cargada (vacio si aun no hay).
+        documento: row.documento_folio
+            ? {
+                  folio: row.documento_folio,
+                  fechaEmision: row.documento_fecha instanceof Date ? localIsoDate(row.documento_fecha) : normalizeText(row.documento_fecha).slice(0, 10)
+              }
+            : null
     };
 }
 
@@ -4250,6 +4305,8 @@ async function findSessionUserByToken(token) {
                 u.nombre,
                 u.sucursal,
                 u.role,
+                u.role_secundario,
+                s.active_role,
                 u.must_change_password,
                 u.onboarding_pending,
                 u.activo
@@ -4391,7 +4448,7 @@ async function ensureUsersRoleColumn() {
     await ensureColumn('usuarios', 'role', "`role` VARCHAR(20) NOT NULL DEFAULT 'OPERADOR' AFTER sucursal");
     await pool.query("UPDATE usuarios SET role = UPPER(role)");
     await pool.query(
-        "UPDATE usuarios SET role = 'OPERADOR' WHERE role IS NULL OR role = '' OR role NOT IN ('SUPER', 'ADMIN', 'SECRETARIA', 'OPERADOR', 'SUPERVISOR')"
+        "UPDATE usuarios SET role = 'OPERADOR' WHERE role IS NULL OR role = '' OR role NOT IN ('SUPER', 'ADMIN', 'SECRETARIA', 'OPERADOR', 'SUPERVISOR', 'CONTADOR')"
     );
 }
 
@@ -4680,6 +4737,153 @@ async function buildSolicitudCotizacion(numLotes, ingresoDate) {
         iva,
         total: neto + iva
     };
+}
+
+// ---------- Facturas en PDF asociadas a las solicitudes de factura ----------
+// Los PDF se guardan fuera de lo publico (storage/facturas) y solo se entregan por la API con permiso.
+const FACTURA_DOCUMENTOS_DIR = path.join(ROOT_DIR, 'storage', 'facturas');
+const FACTURA_PDF_MAX_BYTES = 10 * 1024 * 1024;
+const FACTURA_DOC_UPLOAD_ROLES = Object.freeze([ROLE_CONTADOR, ROLE_SECRETARIA, ROLE_SUPER]);
+const FACTURA_DOC_VIEW_ROLES = Object.freeze([ROLE_CONTADOR, ROLE_SECRETARIA, ROLE_ADMIN, ROLE_SUPER]);
+// Estados de carpeta que dan el tramite por terminado (para "activas" y "sin movimiento").
+const ESTADOS_CARPETA_CERRADOS = Object.freeze(['certificada', 'rechazada', 'no_admisible', 'con_resolucion_de_abandono', 'con_resolucion_de_desistimiento']);
+const DIAS_SIN_MOVIMIENTO_ALERTA = 8;
+
+function isContadorUser(user) {
+    return normalizeUserRole(user?.role, ROLE_OPERADOR) === ROLE_CONTADOR;
+}
+
+function canUploadFacturaDocumento(user) {
+    return !isGuestUser(user) && FACTURA_DOC_UPLOAD_ROLES.includes(normalizeUserRole(user?.role, ROLE_OPERADOR));
+}
+
+function canViewFacturaDocumento(user) {
+    return !isGuestUser(user) && FACTURA_DOC_VIEW_ROLES.includes(normalizeUserRole(user?.role, ROLE_OPERADOR));
+}
+
+function canViewSupervisorResumen(user) {
+    return [ROLE_SUPERVISOR, ROLE_ADMIN, ROLE_SUPER].includes(normalizeUserRole(user?.role, ROLE_OPERADOR));
+}
+
+function localIsoDate(date = new Date()) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// Valida el PDF y sus datos antes de guardar nada. Devuelve { data } o { error, status }.
+function validateFacturaDocumentoInput({ buffer, folio, fechaEmision, motivo, reemplazar }, today = new Date()) {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+        return { status: 400, error: 'Adjunta el archivo PDF de la factura.' };
+    }
+    if (buffer.length > FACTURA_PDF_MAX_BYTES) {
+        return { status: 413, error: 'El archivo supera los 10 MB.' };
+    }
+    const tail = buffer.subarray(Math.max(0, buffer.length - 2048)).toString('latin1');
+    if (buffer.subarray(0, 5).toString('latin1') !== '%PDF-' || !tail.includes('%%EOF')) {
+        return { status: 400, error: 'El archivo no es un PDF valido. No se guardo nada.' };
+    }
+    const folioValue = normalizeText(folio);
+    if (!/^[0-9]{1,20}$/.test(folioValue)) {
+        return { status: 400, error: 'El folio debe tener solo numeros (maximo 20).' };
+    }
+    const fechaValue = normalizeText(fechaEmision);
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(fechaValue) ? new Date(`${fechaValue}T12:00:00`) : null;
+    if (!fecha || Number.isNaN(fecha.getTime()) || localIsoDate(fecha) !== fechaValue || fechaValue < '2000-01-01') {
+        return { status: 400, error: 'Indica una fecha de emision valida.' };
+    }
+    if (fechaValue > localIsoDate(today)) {
+        return { status: 400, error: 'La fecha de emision no puede ser futura.' };
+    }
+    const motivoValue = normalizeText(motivo);
+    if (reemplazar && (motivoValue.length < 5 || motivoValue.length > 300)) {
+        return { status: 400, error: 'Explica el motivo de la sustitucion (entre 5 y 300 caracteres).' };
+    }
+    return { data: { folio: folioValue, fechaEmision: fechaValue, motivo: reemplazar ? motivoValue : '' } };
+}
+
+// Ruta absoluta de un PDF guardado, sin permitir salir de la carpeta de facturas.
+function resolveFacturaDocumentoPath(relativePath) {
+    const absolute = path.resolve(FACTURA_DOCUMENTOS_DIR, normalizeText(relativePath));
+    return absolute.startsWith(FACTURA_DOCUMENTOS_DIR + path.sep) ? absolute : '';
+}
+
+async function insertFacturaDocumentoEvento(executor, evento) {
+    await executor.execute(
+        `
+            INSERT INTO factura_documentos_eventos (solicitud_id, documento_id, accion, detalle, usuario_id, usuario_nombre, usuario_rol)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+            evento.solicitudId,
+            evento.documentoId || null,
+            evento.accion,
+            evento.detalle ? String(evento.detalle).slice(0, 500) : null,
+            evento.user?.id || null,
+            normalizeText(evento.user?.nombre || evento.user?.username) || null,
+            normalizeUserRole(evento.user?.role, ROLE_OPERADOR)
+        ]
+    );
+}
+
+function toFacturaDocumentoRow(row) {
+    const toIso = (value) => (value instanceof Date ? value.toISOString() : value ? String(value) : '');
+    const fecha = row.fecha_emision instanceof Date ? localIsoDate(row.fecha_emision) : normalizeText(row.fecha_emision).slice(0, 10);
+    return {
+        id: Number(row.id),
+        solicitudId: Number(row.solicitud_id),
+        folio: row.folio,
+        fechaEmision: fecha,
+        archivoNombre: row.archivo_nombre || '',
+        tamanoBytes: Number(row.tamano_bytes || 0),
+        subidoPor: row.subido_por_nombre || '',
+        subidoPorRol: row.subido_por_rol || '',
+        createdAt: toIso(row.created_at)
+    };
+}
+
+async function createFacturaDocumentosTables() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS factura_documentos (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            solicitud_id BIGINT UNSIGNED NOT NULL,
+            folio VARCHAR(20) NOT NULL,
+            fecha_emision DATE NOT NULL,
+            archivo_ruta VARCHAR(255) NOT NULL,
+            archivo_nombre VARCHAR(255) NOT NULL,
+            tamano_bytes INT UNSIGNED NOT NULL,
+            sha256 CHAR(64) NOT NULL,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            activo_solicitud_id BIGINT UNSIGNED NULL,
+            activo_folio VARCHAR(20) NULL,
+            subido_por_id INT UNSIGNED NULL,
+            subido_por_nombre VARCHAR(120) NULL,
+            subido_por_rol VARCHAR(20) NULL,
+            reemplazado_at DATETIME NULL,
+            reemplazado_por_nombre VARCHAR(120) NULL,
+            motivo_reemplazo VARCHAR(300) NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_factura_documento_activo (activo_solicitud_id),
+            UNIQUE KEY uq_factura_documento_folio_activo (activo_folio),
+            KEY idx_factura_documento_solicitud (solicitud_id),
+            KEY idx_factura_documento_created (created_at)
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS factura_documentos_eventos (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            solicitud_id BIGINT UNSIGNED NOT NULL,
+            documento_id BIGINT UNSIGNED NULL,
+            accion VARCHAR(20) NOT NULL,
+            detalle VARCHAR(500) NULL,
+            usuario_id INT UNSIGNED NULL,
+            usuario_nombre VARCHAR(120) NULL,
+            usuario_rol VARCHAR(20) NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_factura_evento_solicitud (solicitud_id, created_at),
+            KEY idx_factura_evento_created (created_at)
+        )
+    `);
 }
 
 async function createRegistroSolicitudTable() {
@@ -5427,11 +5631,14 @@ async function initDatabase() {
         await cleanupExpiredSessionsIfNeeded(true);
         await ensureUsersRoleColumn();
         await ensureUsersMustChangePasswordColumn();
+        await ensureColumn('usuarios', 'role_secundario', '`role_secundario` VARCHAR(20) NULL AFTER role');
+        await ensureColumn('sesiones', 'active_role', '`active_role` VARCHAR(20) NULL AFTER user_id');
         await createBranchesTable();
         await createHistoryTable();
         await ensureHistoryEditColumns();
         await createFacturaSolicitudesTable();
         await createRegistroSolicitudTable();
+        await createFacturaDocumentosTables();
         await ensureColumn('registro_solicitud', 'solicita_tercero', '`solicita_tercero` TINYINT(1) NULL AFTER propietario_rut');
         await ensureColumn('registro_solicitud', 'tercero_nombre', '`tercero_nombre` VARCHAR(255) NULL AFTER solicita_tercero');
         await ensureColumn('registro_solicitud', 'tercero_rut', '`tercero_rut` VARCHAR(20) NULL AFTER tercero_nombre');
@@ -5498,6 +5705,7 @@ app.post('/api/auth/login', async (req, res) => {
                     nombre,
                     sucursal,
                     role,
+                    role_secundario,
                     must_change_password,
                     onboarding_pending,
                     password_salt,
@@ -5609,6 +5817,7 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
                     nombre,
                     sucursal,
                     role,
+                    role_secundario,
                     must_change_password,
                     onboarding_pending,
                     password_salt,
@@ -5741,6 +5950,22 @@ app.get('/api/public/system-status', async (req, res) => {
 
 app.use('/api', requireAuth);
 app.use('/api', requirePasswordChangeCompleted);
+
+// Un usuario con dos roles elige con cual trabaja; queda guardado solo en esta sesion.
+app.post('/api/auth/rol-activo', async (req, res) => {
+    try {
+        const requested = parseKnownRole(req.body?.role);
+        if (!requested || !Array.isArray(req.authUser?.roles) || !req.authUser.roles.includes(requested)) {
+            return res.status(400).json({ message: 'Ese rol no esta asignado a tu usuario.' });
+        }
+        await pool.execute('UPDATE sesiones SET active_role = ? WHERE id = ?', [requested, req.authSessionId]);
+        console.info(`[Auth] ${req.authUser.username} cambia a rol ${requested}. IP=${getClientIp(req)}`);
+        return res.json({ user: { ...req.authUser, role: requested } });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible cambiar de rol.' });
+    }
+});
 
 app.post('/api/auth/onboarding-complete', async (req, res) => {
     try {
@@ -6081,6 +6306,374 @@ app.post('/api/cotizaciones/enviar', async (req, res) => {
     }
 });
 
+// Lee el PDF del cuerpo; un archivo demasiado grande o ilegible responde JSON en vez de la pagina de error.
+const parseFacturaPdfBody = express.raw({ type: ['application/pdf', 'application/octet-stream'], limit: FACTURA_PDF_MAX_BYTES });
+function readFacturaPdfBody(req, res, next) {
+    parseFacturaPdfBody(req, res, (error) => {
+        if (error) {
+            const tooLarge = error.status === 413 || error.type === 'entity.too.large';
+            return res.status(tooLarge ? 413 : 400).json({ message: tooLarge ? 'El archivo supera los 10 MB.' : 'No fue posible leer el archivo.' });
+        }
+        return next();
+    });
+}
+
+// Adjunta (o sustituye con ?reemplazar=1) el PDF de una solicitud. Folio, fecha y motivo van en cabeceras.
+app.post('/api/facturas/solicitudes/:id/documento', requireWriteAccess, readFacturaPdfBody, async (req, res) => {
+    if (!canUploadFacturaDocumento(req.authUser)) {
+        return res.status(403).json({ message: 'Solo Contador, Secretaria o Super pueden subir facturas.' });
+    }
+    const solicitudId = Number(req.params.id);
+    if (!Number.isInteger(solicitudId) || solicitudId <= 0) {
+        return res.status(400).json({ message: 'Solicitud invalida.' });
+    }
+    const reemplazar = ['1', 'true', 'si'].includes(normalizeText(req.query.reemplazar).toLowerCase());
+    const validation = validateFacturaDocumentoInput({
+        buffer: req.body,
+        folio: req.get('x-factura-folio'),
+        fechaEmision: req.get('x-factura-fecha'),
+        motivo: decodeURIComponent(normalizeText(req.get('x-factura-motivo'))),
+        reemplazar
+    });
+    if (validation.error) {
+        return res.status(validation.status).json({ message: validation.error });
+    }
+    const { folio, fechaEmision, motivo } = validation.data;
+    const userName = normalizeText(req.authUser.nombre || req.authUser.username);
+
+    let filePath = '';
+    let connection = null;
+    try {
+        const [solicitudRows] = await pool.execute(
+            'SELECT id, num_ingreso, nombre_razon_social, estado FROM factura_solicitudes WHERE id = ? LIMIT 1',
+            [solicitudId]
+        );
+        if (!solicitudRows.length) {
+            return res.status(404).json({ message: 'No existe esa solicitud de factura.' });
+        }
+        const solicitud = solicitudRows[0];
+        if (normalizeFacturaSolicitudEstado(solicitud.estado) === FACTURA_SOLICITUD_ESTADO_ANULADA) {
+            return res.status(409).json({ message: 'La solicitud esta ANULADA; no se le puede adjuntar factura.' });
+        }
+
+        const [activeRows] = await pool.execute('SELECT id, folio FROM factura_documentos WHERE activo_solicitud_id = ? LIMIT 1', [solicitudId]);
+        const anterior = activeRows[0] || null;
+        if (anterior && !reemplazar) {
+            return res.status(409).json({ message: `Esta solicitud ya tiene la factura folio ${anterior.folio}. Usa Sustituir para reemplazarla.` });
+        }
+        if (!anterior && reemplazar) {
+            return res.status(409).json({ message: 'Esta solicitud aun no tiene factura para sustituir.' });
+        }
+        const [folioRows] = await pool.execute(
+            'SELECT s.num_ingreso FROM factura_documentos d INNER JOIN factura_solicitudes s ON s.id = d.solicitud_id WHERE d.activo_folio = ? AND d.solicitud_id <> ? LIMIT 1',
+            [folio, solicitudId]
+        );
+        if (folioRows.length) {
+            return res.status(409).json({ message: `El folio ${folio} ya esta cargado en el ingreso ${folioRows[0].num_ingreso || 'otra solicitud'}.` });
+        }
+
+        // 1) Archivo nuevo con nombre unico (nunca pisa otro). 2) Base en una transaccion. Si falla, se borra el archivo.
+        const year = new Date().getFullYear();
+        const fileName = `${solicitudId}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.pdf`;
+        const relativePath = `${year}/${fileName}`;
+        filePath = path.join(FACTURA_DOCUMENTOS_DIR, String(year), fileName);
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.promises.writeFile(filePath, req.body, { flag: 'wx', mode: 0o640 });
+        const sha256 = crypto.createHash('sha256').update(req.body).digest('hex');
+        const nombreArchivo = `Factura_${folio}_${normalizeText(solicitud.num_ingreso) || solicitudId}.pdf`;
+
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+        if (anterior) {
+            await connection.execute(
+                `
+                    UPDATE factura_documentos
+                    SET activo = 0, activo_solicitud_id = NULL, activo_folio = NULL,
+                        reemplazado_at = NOW(), reemplazado_por_nombre = ?, motivo_reemplazo = ?
+                    WHERE id = ?
+                `,
+                [userName, motivo, anterior.id]
+            );
+        }
+        const [insertResult] = await connection.execute(
+            `
+                INSERT INTO factura_documentos (
+                    solicitud_id, folio, fecha_emision, archivo_ruta, archivo_nombre, tamano_bytes, sha256,
+                    activo, activo_solicitud_id, activo_folio, subido_por_id, subido_por_nombre, subido_por_rol
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+            `,
+            [solicitudId, folio, fechaEmision, relativePath, nombreArchivo, req.body.length, sha256, solicitudId, folio, req.authUser.id || null, userName, normalizeUserRole(req.authUser.role)]
+        );
+        await insertFacturaDocumentoEvento(connection, {
+            solicitudId,
+            documentoId: insertResult.insertId,
+            accion: anterior ? 'SUSTITUCION' : 'CARGA',
+            detalle: anterior ? `folio ${anterior.folio} -> ${folio}. Motivo: ${motivo}` : `folio ${folio}, emitida ${fechaEmision}`,
+            user: req.authUser
+        });
+
+        // El ingreso queda Facturada con NRO FACTURA = folio y lo anota en su historial.
+        const numIngreso = normalizeText(solicitud.num_ingreso);
+        if (numIngreso) {
+            const [registroRows] = await connection.execute('SELECT id FROM registros WHERE num_ingreso = ? LIMIT 1', [numIngreso]);
+            if (registroRows.length) {
+                await connection.execute(
+                    "UPDATE registros SET estado = 'facturada', factura_numero = ?, updated_by = ?, updated_at = NOW() WHERE id = ?",
+                    [folio, userName, registroRows[0].id]
+                );
+                await insertHistoryEntry(connection, {
+                    registroId: registroRows[0].id,
+                    numIngreso,
+                    accion: 'FACTURA',
+                    comentario: anterior
+                        ? `factura sustituida: folio ${anterior.folio} -> ${folio} (motivo: ${motivo})`
+                        : `factura folio ${folio} adjuntada (emitida ${fechaEmision})`,
+                    usuarioNombre: userName,
+                    sucursal: normalizeText(req.authUser.sucursal) || null
+                });
+            }
+        }
+        await connection.commit();
+        console.info(`[Facturas] ${anterior ? 'Sustitucion' : 'Carga'} folio ${folio} solicitud ${solicitudId} por ${req.authUser.username} (${req.authUser.role}).`);
+        return res.status(201).json({
+            message: anterior ? `Factura sustituida: folio ${folio}.` : `Factura folio ${folio} adjuntada.`,
+            documento: toFacturaDocumentoRow({ id: insertResult.insertId, solicitud_id: solicitudId, folio, fecha_emision: fechaEmision, archivo_nombre: nombreArchivo, tamano_bytes: req.body.length, subido_por_nombre: userName, subido_por_rol: req.authUser.role, created_at: new Date() })
+        });
+    } catch (error) {
+        if (connection) {
+            await connection.rollback().catch(() => {});
+        }
+        if (filePath) {
+            await fs.promises.unlink(filePath).catch(() => {});
+        }
+        console.error('Error guardando factura PDF:', error);
+        if (error && error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ message: 'Otra persona cargo una factura para esta solicitud o con ese folio. Actualiza la lista.' });
+        }
+        return res.status(500).json({ message: 'No fue posible guardar la factura. No se guardo nada.' });
+    } finally {
+        if (connection) {
+            connection.release();
+        }
+    }
+});
+
+// Entrega el PDF activo (?modo=imprimir lo muestra en linea para imprimir). Queda registrado.
+app.get('/api/facturas/solicitudes/:id/documento', async (req, res) => {
+    try {
+        if (!canViewFacturaDocumento(req.authUser)) {
+            return res.status(403).json({ message: 'Tu rol no puede ver facturas.' });
+        }
+        const solicitudId = Number(req.params.id);
+        const [rows] = await pool.execute(
+            'SELECT d.id, d.folio, d.archivo_ruta, d.archivo_nombre FROM factura_documentos d WHERE d.activo_solicitud_id = ? LIMIT 1',
+            [Number.isInteger(solicitudId) ? solicitudId : 0]
+        );
+        if (!rows.length) {
+            return res.status(404).json({ message: 'Esta solicitud no tiene factura cargada.' });
+        }
+        const filePath = resolveFacturaDocumentoPath(rows[0].archivo_ruta);
+        if (!filePath || !fs.existsSync(filePath)) {
+            console.error(`[Facturas] Falta el archivo de la factura folio ${rows[0].folio}: ${rows[0].archivo_ruta}`);
+            return res.status(404).json({ message: 'No se encontro el archivo de la factura. Avisa al administrador.' });
+        }
+        const imprimir = normalizeText(req.query.modo).toLowerCase() === 'imprimir';
+        await insertFacturaDocumentoEvento(pool, {
+            solicitudId,
+            documentoId: rows[0].id,
+            accion: imprimir ? 'IMPRESION' : 'DESCARGA',
+            detalle: `folio ${rows[0].folio}`,
+            user: req.authUser
+        });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `${imprimir ? 'inline' : 'attachment'}; filename="${rows[0].archivo_nombre.replace(/[^A-Za-z0-9._-]/g, '_')}"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        return fs.createReadStream(filePath).pipe(res);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible entregar la factura.' });
+    }
+});
+
+// Panel del contador: por facturar, cargadas, cifras del mes y actividad reciente.
+app.get('/api/contador/resumen', async (req, res) => {
+    try {
+        if (!isContadorUser(req.authUser) && !isSuperUser(req.authUser)) {
+            return res.status(403).json({ message: 'Solo el Contador o el Super pueden ver este panel.' });
+        }
+        const [pendientes] = await pool.execute(
+            `
+                SELECT s.id, s.num_ingreso, s.nombre_razon_social, s.rut, s.monto_facturar, s.sent_at, s.created_at
+                FROM factura_solicitudes s
+                LEFT JOIN factura_documentos d ON d.activo_solicitud_id = s.id
+                WHERE s.estado = ? AND d.id IS NULL
+                ORDER BY COALESCE(s.sent_at, s.created_at) ASC, s.id ASC
+                LIMIT 300
+            `,
+            [FACTURA_SOLICITUD_ESTADO_ENVIADA]
+        );
+        const [cargadas] = await pool.execute(
+            `
+                SELECT d.*, s.num_ingreso, s.nombre_razon_social, s.monto_facturar
+                FROM factura_documentos d
+                INNER JOIN factura_solicitudes s ON s.id = d.solicitud_id
+                WHERE d.activo = 1
+                ORDER BY d.created_at DESC, d.id DESC
+                LIMIT 100
+            `
+        );
+        const [eventos] = await pool.execute(
+            `
+                SELECT e.accion, e.detalle, e.usuario_nombre, e.usuario_rol, e.created_at, s.num_ingreso
+                FROM factura_documentos_eventos e
+                LEFT JOIN factura_solicitudes s ON s.id = e.solicitud_id
+                ORDER BY e.created_at DESC, e.id DESC
+                LIMIT 15
+            `
+        );
+        const ahora = new Date();
+        const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+        const monto = (row) => (Number.isFinite(Number(row.monto_facturar)) ? Number(row.monto_facturar) : 0);
+        const fechaEnvio = (row) => new Date(row.sent_at || row.created_at);
+        const delMes = cargadas.filter((row) => new Date(row.created_at) >= inicioMes);
+        const masAntigua = pendientes.length ? Math.floor((ahora - fechaEnvio(pendientes[0])) / 86400000) : 0;
+        return res.json({
+            resumen: {
+                porFacturar: pendientes.length,
+                montoPendiente: pendientes.reduce((t, row) => t + monto(row), 0),
+                cargadasMes: delMes.length,
+                montoFacturadoMes: delMes.reduce((t, row) => t + monto(row), 0),
+                diasMasAntigua: masAntigua
+            },
+            pendientes: pendientes.map((row) => ({
+                id: Number(row.id),
+                numIngreso: row.num_ingreso || '',
+                cliente: row.nombre_razon_social || '',
+                rut: row.rut || '',
+                monto: monto(row),
+                enviada: fechaEnvio(row).toISOString(),
+                dias: Math.max(0, Math.floor((ahora - fechaEnvio(row)) / 86400000))
+            })),
+            cargadas: cargadas.map((row) => ({ ...toFacturaDocumentoRow(row), numIngreso: row.num_ingreso || '', cliente: row.nombre_razon_social || '', monto: monto(row) })),
+            eventos: eventos.map((row) => ({
+                accion: row.accion,
+                detalle: row.detalle || '',
+                numIngreso: row.num_ingreso || '',
+                usuario: row.usuario_nombre || '',
+                rol: row.usuario_rol || '',
+                fecha: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
+            }))
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible cargar el panel del contador.' });
+    }
+});
+
+// Dashboard del supervisor: procesos (etapas), ingresos, montos, clientes y comunas.
+app.get('/api/supervisor/resumen', async (req, res) => {
+    try {
+        if (!canViewSupervisorResumen(req.authUser)) {
+            return res.status(403).json({ message: 'Solo Supervisor, Admin o Super pueden ver este resumen.' });
+        }
+        const meses = [3, 6, 12].includes(Number(req.query.meses)) ? Number(req.query.meses) : 12;
+        const sucursal = normalizeText(req.query.sucursal);
+        const ahora = new Date();
+        const desde = new Date(ahora.getFullYear(), ahora.getMonth() - meses + 1, 1);
+        const sucursalSql = sucursal ? ' AND r.created_by_sucursal = ?' : '';
+        const [registros] = await pool.execute(
+            `
+                SELECT r.id, r.num_ingreso, r.nombre, r.comuna, r.estado, r.estado_carpeta, r.factura_monto, r.created_at,
+                       COALESCE((SELECT MAX(h.created_at) FROM registro_historial h WHERE h.registro_id = r.id), r.updated_at, r.created_at) AS ultimo_movimiento
+                FROM registros r
+                WHERE 1 = 1${sucursalSql}
+            `,
+            sucursal ? [sucursal] : []
+        );
+        const catalogo = await fetchFolderStatusCatalog();
+        const grupoDeEstado = new Map(catalogo.options.map((option) => [option.value, option.groupId]));
+        const etiquetaDeEstado = new Map(catalogo.options.map((option) => [option.value, option.label]));
+        const [sucursales] = await pool.execute('SELECT nombre FROM sucursales ORDER BY nombre');
+
+        const monto = (row) => (Number.isFinite(Number(row.factura_monto)) ? Number(row.factura_monto) : 0);
+        const estaCerrada = (row) => ESTADOS_CARPETA_CERRADOS.includes(normalizeFolderStatusValue(row.estado_carpeta));
+        const activas = registros.filter((row) => !estaCerrada(row));
+        const periodo = registros.filter((row) => new Date(row.created_at) >= desde);
+        const dias = (row) => Math.max(0, Math.floor((ahora - new Date(row.ultimo_movimiento)) / 86400000));
+        const atencion = activas.filter((row) => dias(row) >= DIAS_SIN_MOVIMIENTO_ALERTA).sort((a, b) => dias(b) - dias(a));
+        const facturadas = periodo.filter((row) => normalizeEstado(row.estado) === 'facturada');
+
+        const porMes = [];
+        for (let m = meses - 1; m >= 0; m -= 1) {
+            const inicio = new Date(ahora.getFullYear(), ahora.getMonth() - m, 1);
+            const fin = new Date(ahora.getFullYear(), ahora.getMonth() - m + 1, 1);
+            const delMes = registros.filter((row) => new Date(row.created_at) >= inicio && new Date(row.created_at) < fin);
+            porMes.push({
+                anio: inicio.getFullYear(),
+                mes: inicio.getMonth() + 1,
+                ingresos: delMes.length,
+                facturado: delMes.filter((row) => normalizeEstado(row.estado) === 'facturada').reduce((t, row) => t + monto(row), 0),
+                pendiente: delMes.filter((row) => normalizeEstado(row.estado) !== 'facturada').reduce((t, row) => t + monto(row), 0)
+            });
+        }
+        const etapas = catalogo.groups.map((group) => ({
+            id: group.id,
+            label: group.label,
+            cantidad: activas.filter((row) => grupoDeEstado.get(normalizeFolderStatusValue(row.estado_carpeta)) === group.id).length
+        }));
+        const sinEstado = activas.filter((row) => !grupoDeEstado.has(normalizeFolderStatusValue(row.estado_carpeta))).length;
+        if (sinEstado > 0) {
+            etapas.unshift({ id: 'sin_estado', label: 'Sin estado', cantidad: sinEstado });
+        }
+        const agrupar = (rows, key) => {
+            const map = new Map();
+            rows.forEach((row) => {
+                const name = normalizeText(row[key]) || 'Sin dato';
+                const item = map.get(name) || { label: name, carpetas: 0, monto: 0, pendiente: 0 };
+                item.carpetas += 1;
+                item.monto += monto(row);
+                if (normalizeEstado(row.estado) !== 'facturada') item.pendiente += monto(row);
+                map.set(name, item);
+            });
+            return [...map.values()];
+        };
+
+        return res.json({
+            meses,
+            sucursal,
+            sucursales: sucursales.map((row) => row.nombre),
+            kpis: {
+                activas: activas.length,
+                cerradasPeriodo: periodo.filter(estaCerrada).length,
+                ingresosMes: porMes[porMes.length - 1]?.ingresos || 0,
+                ingresosMesAnterior: porMes[porMes.length - 2]?.ingresos || 0,
+                sinMovimiento: atencion.length,
+                facturado: facturadas.reduce((t, row) => t + monto(row), 0),
+                carpetasFacturadas: facturadas.length,
+                pendiente: periodo.filter((row) => normalizeEstado(row.estado) !== 'facturada').reduce((t, row) => t + monto(row), 0),
+                carpetasPendientes: periodo.filter((row) => normalizeEstado(row.estado) !== 'facturada' && monto(row) > 0).length,
+                carpetasPeriodo: periodo.length
+            },
+            porMes,
+            etapas,
+            clientes: agrupar(periodo, 'nombre').sort((a, b) => b.monto - a.monto || b.carpetas - a.carpetas).slice(0, 6),
+            comunas: agrupar(periodo, 'comuna').sort((a, b) => b.carpetas - a.carpetas).slice(0, 6),
+            atencion: atencion.slice(0, 10).map((row) => ({
+                numIngreso: row.num_ingreso,
+                cliente: row.nombre,
+                comuna: row.comuna,
+                etapa: etiquetaDeEstado.get(normalizeFolderStatusValue(row.estado_carpeta)) || 'Sin estado',
+                monto: monto(row),
+                dias: dias(row)
+            }))
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible cargar el resumen del supervisor.' });
+    }
+});
+
 app.get('/api/facturas/solicitudes', async (req, res) => {
     try {
         if (!canUseInvoiceWorkflow(req.authUser)) {
@@ -6135,8 +6728,11 @@ app.get('/api/facturas/solicitudes', async (req, res) => {
                     s.created_by,
                     s.created_by_sucursal,
                     s.sent_at,
-                    s.created_at
+                    s.created_at,
+                    d.folio AS documento_folio,
+                    d.fecha_emision AS documento_fecha
                 FROM factura_solicitudes s
+                LEFT JOIN factura_documentos d ON d.activo_solicitud_id = s.id
                 ${whereSql}
                 ORDER BY s.created_at DESC, s.id DESC
                 LIMIT ${limit}
@@ -6736,6 +7332,7 @@ app.get('/api/admin/usuarios', requireAdmin, async (req, res) => {
                     nombre,
                     sucursal,
                     role,
+                    role_secundario,
                     must_change_password,
                     onboarding_pending,
                     activo,
@@ -6765,6 +7362,7 @@ app.get('/api/admin/usuarios', requireAdmin, async (req, res) => {
                 nombre: row.nombre,
                 sucursal: row.sucursal,
                 role: isGuest ? 'INVITADO' : normalizeUserRole(row.role, ROLE_OPERADOR),
+                roleSecundario: isGuest ? '' : resolveUserRoles(row.role, row.role_secundario)[1] || '',
                 mustChangePassword: Number(row.must_change_password || 0) === 1,
                 activo: Number(row.activo) === 1,
                 isGuest,
@@ -6793,6 +7391,10 @@ app.post('/api/admin/usuarios', requireAdmin, async (req, res) => {
         }
         if (role === ROLE_ADMIN && !isSuperUser(req.authUser)) {
             return res.status(403).json({ message: 'Solo el superusuario puede crear usuarios con rol ADMIN.' });
+        }
+        const secondaryRole = resolveSecondaryRoleInput(req.body.roleSecundario, role, req.authUser);
+        if (secondaryRole.error) {
+            return res.status(400).json({ message: secondaryRole.error });
         }
 
         if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
@@ -6823,10 +7425,10 @@ app.post('/api/admin/usuarios', requireAdmin, async (req, res) => {
         const passwordData = createPasswordHash(password);
         const [insertResult] = await pool.execute(
             `
-                INSERT INTO usuarios (username, nombre, sucursal, role, password_salt, password_hash, must_change_password, activo)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                INSERT INTO usuarios (username, nombre, sucursal, role, role_secundario, password_salt, password_hash, must_change_password, activo)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
             `,
-            [username, nombre, sucursal, role, passwordData.salt, passwordData.hash, mustChangePassword]
+            [username, nombre, sucursal, role, secondaryRole.value, passwordData.salt, passwordData.hash, mustChangePassword]
         );
 
         return res.status(201).json({
@@ -6837,6 +7439,7 @@ app.post('/api/admin/usuarios', requireAdmin, async (req, res) => {
                 nombre,
                 sucursal,
                 role,
+                roleSecundario: secondaryRole.value || '',
                 mustChangePassword: mustChangePassword === 1,
                 activo: true
             }
@@ -6930,6 +7533,11 @@ app.put('/api/admin/usuarios/:userId', requireAdmin, async (req, res) => {
             return res.status(403).json({ message: 'Solo el superusuario puede asignar el rol SUPER.' });
         }
 
+        const secondaryRole = resolveSecondaryRoleInput(req.body.roleSecundario, role, req.authUser);
+        if (secondaryRole.error) {
+            return res.status(400).json({ message: secondaryRole.error });
+        }
+
         if (role === ROLE_SUPER && currentRole !== ROLE_SUPER && (await countSuperUsers(userId)) > 0) {
             return res.status(400).json({ message: 'Solo se permite una cuenta con rol SUPER en el sistema.' });
         }
@@ -6994,6 +7602,8 @@ app.put('/api/admin/usuarios/:userId', requireAdmin, async (req, res) => {
             }
         }
 
+        await pool.execute('UPDATE usuarios SET role_secundario = ? WHERE id = ?', [secondaryRole.value, userId]);
+
         return res.json({
             message: `Usuario ${username} actualizado correctamente.`,
             usuario: {
@@ -7002,6 +7612,7 @@ app.put('/api/admin/usuarios/:userId', requireAdmin, async (req, res) => {
                 nombre,
                 sucursal,
                 role,
+                roleSecundario: secondaryRole.value || '',
                 mustChangePassword
             }
         });

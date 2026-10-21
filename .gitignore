@@ -7,3 +7,5 @@ logs/
 dist/
 npm-debug.log*
 .claude/settings.local.json
+# PDF de facturas cargadas (datos de cada instalación, nunca a Git)
+storage/

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
 const { createRequire } = require('node:module');
 const { DatabaseSync } = require('node:sqlite');
 const { ensureBootstrapAccount } = require('../server/bootstrap');
@@ -13,10 +14,10 @@ async function fixture(t) {
     const credentialPath = path.join(directory, '.local/admin_sia.json');
     const db = new DatabaseSync(':memory:');
     db.exec(`CREATE TABLE usuarios (id INTEGER PRIMARY KEY, username TEXT UNIQUE, nombre TEXT, sucursal TEXT,
-        role TEXT, password_salt TEXT, password_hash TEXT, must_change_password INTEGER, activo INTEGER,
+        role TEXT, role_secundario TEXT, password_salt TEXT, password_hash TEXT, must_change_password INTEGER, activo INTEGER,
         onboarding_pending INTEGER NOT NULL DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT);
-        CREATE TABLE sesiones (id INTEGER PRIMARY KEY, user_id INTEGER, token_hash TEXT,
+        CREATE TABLE sesiones (id INTEGER PRIMARY KEY, user_id INTEGER, active_role TEXT, token_hash TEXT,
         expires_at TEXT, absolute_expires_at TEXT, last_used_at TEXT, revoked_at TEXT);
         CREATE TABLE sistema_configuracion (id INTEGER PRIMARY KEY, folder_status_groups TEXT, folder_status_options TEXT);`);
     // Solo se adapta la sintaxis de fechas MySQL; las consultas y los datos se ejecutan realmente.
@@ -63,6 +64,7 @@ async function fixture(t) {
             ...(body ? { body: JSON.stringify(body) } : {})
         });
     }
+    request.origin = origin;
     async function login(password = credential.password) {
         const response = await request('/api/auth/login', { username: 'admin_sia', password });
         return { response, cookie: response.headers.get('set-cookie')?.split(';')[0] || '' };
@@ -133,4 +135,61 @@ test('restablecer una clave temporal vuelve a activar la guía después de cambi
     const changed = await f.request('/api/auth/change-password', { currentPassword: temporary, newPassword: 'Segunda-definitiva-8392!' }, login.cookie);
     assert.equal(changed.status, 200);
     assert.equal((await changed.json()).user.onboardingPending, true);
+});
+
+// Crea un usuario de prueba con uno o dos roles e inicia su sesión.
+async function loginAs(f, username, role, roleSecundario = null) {
+    const password = 'Clave-de-prueba-8392!';
+    const salt = crypto.randomBytes(16);
+    const hash = crypto.pbkdf2Sync(password, salt, 120000, 64, 'sha512').toString('hex');
+    f.db.prepare(`INSERT INTO usuarios (username, nombre, sucursal, role, role_secundario, password_salt, password_hash, must_change_password, activo, onboarding_pending)
+        VALUES (?, ?, 'Casa Matriz', ?, ?, ?, ?, 0, 1, 0)`).run(username, username, role, roleSecundario, salt.toString('hex'), hash);
+    const response = await f.request('/api/auth/login', { username, password });
+    return { response, cookie: response.headers.get('set-cookie')?.split(';')[0] || '' };
+}
+
+test('un usuario con dos roles elige con cuál trabaja y no puede tomar otro', async (t) => {
+    const f = await fixture(t);
+    const { response, cookie } = await loginAs(f, 'karla', 'SECRETARIA', 'CONTADOR');
+    const user = (await response.json()).user;
+    assert.equal(user.role, 'SECRETARIA');
+    assert.deepEqual(user.roles, ['SECRETARIA', 'CONTADOR']);
+    assert.equal((await f.request('/api/auth/rol-activo', { role: 'CONTADOR' }, cookie)).status, 200);
+    const me = await (await f.request('/api/auth/me', null, cookie)).json();
+    assert.equal(me.user.role, 'CONTADOR');
+    assert.equal((await f.request('/api/auth/rol-activo', { role: 'SUPER' }, cookie)).status, 400);
+    assert.equal((await (await f.request('/api/auth/me', null, cookie)).json()).user.role, 'CONTADOR');
+});
+
+test('SUPER no se combina y un rol adicional repetido se ignora', async (t) => {
+    const f = await fixture(t);
+    const combinado = await loginAs(f, 'jefe', 'SUPERVISOR', 'SUPERVISOR');
+    assert.deepEqual((await combinado.response.json()).user.roles, ['SUPERVISOR']);
+});
+
+test('solo Contador, Secretaria y Super pueden subir facturas; un archivo que no es PDF no se guarda', async (t) => {
+    const f = await fixture(t);
+    const upload = (cookie, body = 'no es un pdf') =>
+        fetch(f.request.origin + '/api/facturas/solicitudes/1/documento', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/pdf', 'X-Factura-Folio': '1543', 'X-Factura-Fecha': '2026-01-15', Cookie: cookie },
+            body
+        });
+    const operador = await loginAs(f, 'pedro', 'OPERADOR');
+    assert.equal((await upload(operador.cookie)).status, 403);
+    const supervisor = await loginAs(f, 'sofia', 'SUPERVISOR');
+    assert.equal((await upload(supervisor.cookie)).status, 403);
+    const contador = await loginAs(f, 'carla', 'CONTADOR');
+    const invalido = await upload(contador.cookie);
+    assert.equal(invalido.status, 400);
+    assert.match((await invalido.json()).message, /PDF valido/);
+    assert.equal((await fetch(f.request.origin + '/api/facturas/solicitudes/1/documento', { headers: { Cookie: operador.cookie } })).status, 403);
+});
+
+test('cada panel solo lo ve su rol', async (t) => {
+    const f = await fixture(t);
+    const secretaria = await loginAs(f, 'ana', 'SECRETARIA');
+    assert.equal((await f.request('/api/contador/resumen', null, secretaria.cookie)).status, 403);
+    const contador = await loginAs(f, 'carla', 'CONTADOR');
+    assert.equal((await f.request('/api/supervisor/resumen', null, contador.cookie)).status, 403);
 });

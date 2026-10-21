@@ -800,6 +800,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setOperatorBillingVisibility(false);
     setFacturaContainerVisibility(false);
     setSolicitudContainerVisibility(false);
+    window.SiaRolePanels?.reset();
     syncFacturaNumeroVisibility({ clearOnHide: true });
 
     populateRegiones(ui.region, 'Seleccione region');
@@ -1749,6 +1750,7 @@ async function activateAuthenticatedUser(user, options = {}) {
 
     pendingMonthlyUtmStatus = monthlyUtmStatus || null;
     showAppForUser(currentUser);
+    window.SiaRolePanels?.apply(currentUser);
     await loadRuntimeMailTemplates({ showErrors: false });
     await loadNextIngreso(ui.numIngreso, ui.formMessage);
     renderHistory([]);
@@ -2200,6 +2202,7 @@ function showAuthCard(message = '') {
     resetFacturaForm();
     setFacturaContainerVisibility(false);
     setSolicitudContainerVisibility(false);
+    window.SiaRolePanels?.reset();
     setRegistroMainVisibility(true);
     configureIngresoFieldByRole(null);
     updateRegistroActionButtons();
@@ -2360,6 +2363,9 @@ function normalizeUserRole(roleValue) {
     }
     if (role === 'SUPERVISOR') {
         return 'SUPERVISOR';
+    }
+    if (role === 'CONTADOR') {
+        return 'CONTADOR';
     }
     return 'OPERADOR';
 }
@@ -6084,7 +6090,8 @@ function sanitizeRequestedInvoiceHistoryEntry(rawItem) {
         destinationEmail,
         sentAt: normalizeInvoiceText(rawItem?.sentAt, 40),
         requestedBy: normalizeInvoiceText(rawItem?.createdBy || rawItem?.requestedBy, 120) || draft.createdBy,
-        requestedBySucursal: normalizeInvoiceText(rawItem?.sucursal || rawItem?.requestedBySucursal, 120) || draft.sucursal
+        requestedBySucursal: normalizeInvoiceText(rawItem?.sucursal || rawItem?.requestedBySucursal, 120) || draft.sucursal,
+        documento: rawItem?.documento && rawItem.documento.folio ? { folio: String(rawItem.documento.folio), fechaEmision: String(rawItem.documento.fechaEmision || '') } : null
     };
 }
 
@@ -6185,8 +6192,8 @@ function renderRequestedInvoicesHistory() {
 
     if (!shownCount) {
         ui.secretariaInvoicesBody.innerHTML = filters.hasFilters
-            ? '<tr><td colspan="8">No hay resultados para los filtros aplicados.</td></tr>'
-            : '<tr><td colspan="8">Sin facturas solicitadas para mostrar.</td></tr>';
+            ? '<tr><td colspan="9">No hay resultados para los filtros aplicados.</td></tr>'
+            : '<tr><td colspan="9">Sin facturas solicitadas para mostrar.</td></tr>';
         selectedRequestedInvoiceRequestId = '';
         updateSecretariaInvoiceDetailButtonState();
         renderRequestedInvoicesPaginationControls(pagination);
@@ -6217,6 +6224,7 @@ function renderRequestedInvoicesHistory() {
             <td>${escapeHtml(formatInvoiceAmount(item.montoFacturar))}</td>
             <td>${escapeHtml(formatInvoiceRequestStatus(item.estado))}</td>
             <td>${escapeHtml(item.destinationEmail || '-')}</td>
+            <td class="factura-doc-cell">${window.SiaRolePanels ? window.SiaRolePanels.facturaCell(item) : ''}</td>
         `;
         row.addEventListener('click', () => {
             setSelectedRequestedInvoiceRequest(item.requestId);
@@ -8124,10 +8132,10 @@ async function setAdminIngresoMode(mode, options = {}) {
 
 function getAssignableRolesForCurrentUser() {
     if (isSuperUser(currentUser)) {
-        return ['SUPER', 'ADMIN', 'SECRETARIA', 'OPERADOR', 'SUPERVISOR'];
+        return ['SUPER', 'ADMIN', 'SECRETARIA', 'OPERADOR', 'SUPERVISOR', 'CONTADOR'];
     }
 
-    return ['SECRETARIA', 'OPERADOR', 'SUPERVISOR'];
+    return ['SECRETARIA', 'OPERADOR', 'SUPERVISOR', 'CONTADOR'];
 }
 
 function ensureAdminRoleOptions() {
@@ -8138,6 +8146,7 @@ function ensureAdminRoleOptions() {
     const expectedRoles = [
         { value: 'OPERADOR', label: 'OPERADOR' },
         { value: 'SUPERVISOR', label: 'SUPERVISOR' },
+        { value: 'CONTADOR', label: 'CONTADOR' },
         { value: 'SECRETARIA', label: 'SECRETARIA' },
         { value: 'ADMIN', label: 'ADMIN' },
         { value: 'SUPER', label: 'SUPER' }
@@ -8930,6 +8939,10 @@ function resetAdminUserInputs() {
     ui.adminPassword.value = '';
     editingAdminUserRole = '';
     ui.adminRole.value = 'OPERADOR';
+    const adminRoleSecundario = document.getElementById('adminRoleSecundario');
+    if (adminRoleSecundario) {
+        adminRoleSecundario.value = '';
+    }
     syncAdminRoleOptionsForCurrentUser();
 }
 
@@ -8980,6 +8993,10 @@ function enterAdminEditMode(usuario) {
     ui.adminPassword.value = '';
     syncAdminRoleOptionsForCurrentUser();
     ui.adminRole.value = usuario.role || 'OPERADOR';
+    const adminRoleSecundarioEdit = document.getElementById('adminRoleSecundario');
+    if (adminRoleSecundarioEdit) {
+        adminRoleSecundarioEdit.value = usuario.roleSecundario || '';
+    }
     ui.adminCreateUserBtn.textContent = 'GUARDAR CAMBIOS';
     if (ui.adminCancelEditBtn) {
         ui.adminCancelEditBtn.classList.remove('hidden');
@@ -9828,7 +9845,7 @@ async function handleAdminCreateUser() {
             return;
         }
 
-        const payload = { username, nombre, sucursal, role };
+        const payload = { username, nombre, sucursal, role, roleSecundario: document.getElementById('adminRoleSecundario')?.value || '' };
         if (password) {
             payload.password = password;
         }
@@ -9873,7 +9890,8 @@ async function handleAdminCreateUser() {
         nombre,
         sucursal,
         password,
-        role
+        role,
+        roleSecundario: document.getElementById('adminRoleSecundario')?.value || ''
     };
 
     try {
@@ -9947,7 +9965,7 @@ function renderAdminUsers(usuarios) {
         const isGuestAccount =
             Boolean(usuario && usuario.isGuest) || String(usuario && usuario.username ? usuario.username : '').trim().toLowerCase() === 'invitado';
         const mustChangePasswordText = isGuestAccount ? 'N/A' : usuario.mustChangePassword ? 'SI' : 'NO';
-        const roleLabel = isGuestAccount ? 'INVITADO' : usuario.role || 'OPERADOR';
+        const roleLabel = isGuestAccount ? 'INVITADO' : `${usuario.role || 'OPERADOR'}${usuario.roleSecundario ? ` + ${usuario.roleSecundario}` : ''}`;
 
         row.innerHTML = `
             <td>${escapeHtml(usuario.username || '')}</td>

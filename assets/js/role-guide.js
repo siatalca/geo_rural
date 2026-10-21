@@ -46,11 +46,22 @@
         },
         SUPERVISOR: {
             label: 'Supervisor',
-            intro: 'Puedes consultar las carpetas disponibles y aportar observaciones de seguimiento.',
+            intro: 'Tu panel RESUMEN muestra los procesos, clientes y montos de la oficina; en REGISTROS consultas carpetas y aportas observaciones.',
             steps: [
+                ['Revisa el resumen', 'En RESUMEN ves carpetas activas, ingresos del mes, montos facturados y pendientes, clientes principales y las carpetas sin movimiento hace 8 días o más. Puedes filtrar por período y sucursal.'],
                 ['Consulta los antecedentes', 'Busca la carpeta por número de ingreso, ROL, RUT o nombre y verifica que corresponde al caso que revisarás.'],
                 ['Revisa el historial', 'Consulta los comentarios y movimientos para conocer el avance. Tu rol no permite modificar los datos generales de las carpetas.'],
                 ['Agrega observaciones', 'Guarda comentarios claros con el resultado de tu revisión. Solicita al administrador los cambios de datos, usuarios o configuración que sean necesarios.']
+            ]
+        },
+        CONTADOR: {
+            label: 'Contador',
+            intro: 'Tu panel reúne las solicitudes de factura que te envía la oficina y las facturas que ya cargaste.',
+            steps: [
+                ['Revisa lo pendiente', 'En POR FACTURAR están las solicitudes enviadas que aún no tienen PDF, de la más antigua a la más reciente. Las que llevan 8 días o más se marcan en rojo.'],
+                ['Adjunta la factura', 'Con el ícono de subir eliges el PDF, escribes el folio y la fecha de emisión. El sistema rechaza archivos que no sean PDF y folios repetidos. Al guardar, el ingreso queda como Facturada.'],
+                ['Corrige si hace falta', 'Si cargaste un PDF equivocado usa Sustituir e indica el motivo; el anterior queda guardado y el cambio registrado.'],
+                ['Consulta lo cargado', 'En FACTURAS CARGADAS puedes descargar o imprimir cada factura. El registro de actividad muestra quién cargó, sustituyó o descargó cada una.']
             ]
         }
     };

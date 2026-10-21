@@ -10,13 +10,17 @@
     <script src="../../assets/js/button-help.js?v=20261017" defer></script>
     <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017-03">
     <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
-    <link rel="stylesheet" href="../../styles.css?v=20261021-04">
+    <link rel="stylesheet" href="../../styles.css?v=20261022-01">
     <link rel="stylesheet" href="../../assets/site/site.css?v=20261017-02">
 </head>
 <body>
     <div id="appTopPanels" class="app-top-panels hidden">
         <div class="session-bar">
             <span id="sessionUser">Sesion no iniciada</span>
+            <label id="roleSwitchWrap" class="role-switch hidden">
+                TRABAJANDO COMO
+                <select id="roleSwitchSelect" aria-label="Rol con el que trabajas" data-help="Tienes dos roles: elige con cuál trabajar. La página se recarga con las opciones de ese rol."></select>
+            </label>
             <button type="button" id="logoutBtn" class="logout-btn">CERRAR SESION</button>
         </div>
 
@@ -89,9 +93,21 @@
                             <select id="adminRole">
                                 <option value="OPERADOR">OPERADOR</option>
                                 <option value="SUPERVISOR">SUPERVISOR</option>
+                                <option value="CONTADOR">CONTADOR</option>
                                 <option value="SECRETARIA">SECRETARIA</option>
                                 <option value="ADMIN">ADMIN</option>
                                 <option value="SUPER">SUPER</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="adminRoleSecundario">ROL ADICIONAL (OPCIONAL)</label>
+                            <select id="adminRoleSecundario">
+                                <option value="">SIN ROL ADICIONAL</option>
+                                <option value="OPERADOR">OPERADOR</option>
+                                <option value="SUPERVISOR">SUPERVISOR</option>
+                                <option value="CONTADOR">CONTADOR</option>
+                                <option value="SECRETARIA">SECRETARIA</option>
+                                <option value="ADMIN">ADMIN</option>
                             </select>
                         </div>
                         <div class="form-group admin-create-wrap">
@@ -487,6 +503,106 @@
                 <button type="submit" class="login-btn">GUARDAR Y CONTINUAR</button>
             </form>
             <p id="utmCaptureMessage" class="form-message" role="status" aria-live="polite"></p>
+        </section>
+
+        <!-- Pestañas del Supervisor: RESUMEN (dashboard) y REGISTROS (formulario de siempre). assets/js/rol-paneles.js -->
+        <div id="supervisorTabs" class="role-tabs hidden" role="tablist" aria-label="Secciones del supervisor">
+            <button type="button" role="tab" class="role-tab" data-supervisor-tab="resumen" aria-selected="true">RESUMEN</button>
+            <button type="button" role="tab" class="role-tab" data-supervisor-tab="registros" aria-selected="false">REGISTROS</button>
+        </div>
+
+        <section id="supervisorDashboard" class="registro-form role-panel viz-root hidden" aria-labelledby="supervisorDashboardTitle">
+            <div class="header">
+                <div>
+                    <h2 id="supervisorDashboardTitle">PANEL DEL SUPERVISOR</h2>
+                    <span>Procesos, clientes y montos de la oficina</span>
+                </div>
+                <img src="../../assets/img/logo.svg" alt="Logo" data-site-logo class="logo">
+            </div>
+            <div class="viz-filters">
+                <label for="supervisorPeriodo">PERÍODO</label>
+                <select id="supervisorPeriodo">
+                    <option value="3">Últimos 3 meses</option>
+                    <option value="6">Últimos 6 meses</option>
+                    <option value="12" selected>Últimos 12 meses</option>
+                </select>
+                <label for="supervisorSucursal">SUCURSAL</label>
+                <select id="supervisorSucursal"><option value="">Todas</option></select>
+            </div>
+            <p id="supervisorMessage" class="form-message" role="status" aria-live="polite"></p>
+            <div class="kpi-grid" id="supervisorKpis"></div>
+            <div class="viz-grid">
+                <figure class="viz-card viz-wide">
+                    <figcaption><strong>Montos por mes</strong><span>Facturado y pendiente según el monto a facturar de cada ingreso</span></figcaption>
+                    <div class="viz-legend" id="supervisorLegendMontos"></div>
+                    <div class="viz-chart" id="supervisorChartMontos"></div>
+                </figure>
+                <figure class="viz-card">
+                    <figcaption><strong>Carpetas por etapa del proceso</strong><span id="supervisorNotaEtapas">Carpetas activas según su estado actual</span></figcaption>
+                    <div class="viz-chart" id="supervisorChartEtapas"></div>
+                </figure>
+                <figure class="viz-card">
+                    <figcaption><strong>Ingresos por mes</strong><span>Carpetas nuevas recibidas cada mes</span></figcaption>
+                    <div class="viz-chart" id="supervisorChartIngresos"></div>
+                </figure>
+                <figure class="viz-card">
+                    <figcaption><strong>Clientes principales</strong><span id="supervisorNotaClientes">Monto a facturar en el período</span></figcaption>
+                    <div class="viz-chart" id="supervisorChartClientes"></div>
+                </figure>
+                <figure class="viz-card">
+                    <figcaption><strong>Ingresos por comuna</strong><span>Dónde están los predios del período</span></figcaption>
+                    <div class="viz-chart" id="supervisorChartComunas"></div>
+                </figure>
+            </div>
+            <section class="registro-panel role-block">
+                <h4 class="form-section-title">CARPETAS QUE REQUIEREN ATENCIÓN</h4>
+                <p class="helper-text">Activas sin movimiento hace 8 días o más, de la más detenida a la más reciente.</p>
+                <div class="history-wrapper">
+                    <table class="history-table">
+                        <thead><tr><th>Nro Ingreso</th><th>Cliente</th><th>Etapa</th><th>Comuna</th><th class="num">Monto</th><th class="num">Sin movimiento</th></tr></thead>
+                        <tbody id="supervisorAtencionBody"></tbody>
+                    </table>
+                </div>
+            </section>
+        </section>
+
+        <!-- Panel del Contador. assets/js/rol-paneles.js -->
+        <section id="contadorPanel" class="registro-form role-panel hidden" aria-labelledby="contadorPanelTitle">
+            <div class="header">
+                <div>
+                    <h2 id="contadorPanelTitle">PANEL DEL CONTADOR</h2>
+                    <span>Solicitudes de factura enviadas por la oficina</span>
+                </div>
+                <img src="../../assets/img/logo.svg" alt="Logo" data-site-logo class="logo">
+            </div>
+            <p id="contadorMessage" class="form-message" role="status" aria-live="polite"></p>
+            <div class="kpi-grid" id="contadorKpis"></div>
+            <section class="registro-panel role-block">
+                <div class="role-block-head">
+                    <h4 class="form-section-title">POR FACTURAR</h4>
+                    <input type="search" id="contadorSearch" placeholder="Buscar por cliente, RUT o N° ingreso" aria-label="Buscar solicitudes por facturar">
+                    <button type="button" id="contadorRefresh" class="admin-cancel-btn" data-help="Vuelve a cargar las solicitudes y facturas.">ACTUALIZAR</button>
+                </div>
+                <div class="history-wrapper">
+                    <table class="history-table">
+                        <thead><tr><th>Nro Ingreso</th><th>Cliente</th><th>RUT</th><th class="num">Monto</th><th>Enviada</th><th>Factura</th></tr></thead>
+                        <tbody id="contadorPendientesBody"></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="registro-panel role-block">
+                <h4 class="form-section-title">FACTURAS CARGADAS</h4>
+                <div class="history-wrapper">
+                    <table class="history-table">
+                        <thead><tr><th>Folio</th><th>Emisión</th><th>Nro Ingreso</th><th>Cliente</th><th class="num">Monto</th><th>Cargada por</th><th>Factura</th></tr></thead>
+                        <tbody id="contadorCargadasBody"></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="registro-panel role-block">
+                <h4 class="form-section-title">REGISTRO DE ACTIVIDAD</h4>
+                <ul class="role-events" id="contadorEventos"></ul>
+            </section>
         </section>
 
         <form class="registro-form hidden" id="registroForm" autocomplete="off">
@@ -906,11 +1022,12 @@
                             <th>Monto</th>
                             <th>Estado</th>
                             <th>Destino</th>
+                            <th>Factura</th>
                         </tr>
                     </thead>
                     <tbody id="secretariaInvoicesBody">
                         <tr>
-                            <td colspan="8">Sin facturas solicitadas para mostrar.</td>
+                            <td colspan="9">Sin facturas solicitadas para mostrar.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1395,6 +1512,39 @@
         </div>
     </div>
 
+    <!-- Adjuntar o sustituir el PDF de una factura (Contador, Secretaria y Super). assets/js/rol-paneles.js -->
+    <div id="facturaUploadOverlay" class="modal-overlay hidden">
+        <form id="facturaUploadForm" class="modal-card factura-upload-card" role="dialog" aria-modal="true" aria-labelledby="facturaUploadTitle" novalidate>
+            <h3 id="facturaUploadTitle">ADJUNTAR FACTURA</h3>
+            <p id="facturaUploadSubtitle" class="helper-text"></p>
+            <div class="form-group">
+                <label for="facturaUploadFile">ARCHIVO PDF DE LA FACTURA</label>
+                <input type="file" id="facturaUploadFile" accept="application/pdf,.pdf">
+                <small class="input-hint">Solo PDF, máximo 10 MB.</small>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="facturaUploadFolio">FOLIO</label>
+                    <input type="text" id="facturaUploadFolio" inputmode="numeric" maxlength="20" placeholder="Ej: 1543">
+                </div>
+                <div class="form-group">
+                    <label for="facturaUploadFecha">FECHA DE EMISIÓN</label>
+                    <input type="date" id="facturaUploadFecha">
+                </div>
+            </div>
+            <div class="form-group hidden" id="facturaUploadMotivoGroup">
+                <label for="facturaUploadMotivo">MOTIVO DE LA SUSTITUCIÓN</label>
+                <textarea id="facturaUploadMotivo" rows="2" maxlength="300" placeholder="Ej: el PDF anterior tenía un error en el monto"></textarea>
+            </div>
+            <p id="facturaUploadMessage" class="form-message" role="alert"></p>
+            <div class="invoice-modal-actions">
+                <button type="submit" id="facturaUploadSubmit" class="guardar" data-help="Guarda el PDF y lo asocia a la solicitud." data-help-level="cuidado">GUARDAR FACTURA</button>
+                <button type="button" id="facturaUploadCancel" class="limpiar">CANCELAR</button>
+            </div>
+        </form>
+    </div>
+    <div class="viz-tooltip" id="vizTooltip" role="tooltip" hidden></div>
+
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
@@ -1406,6 +1556,7 @@
     </script>
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
     <script src="../../assets/js/role-guide.js?v=20261015"></script>
-    <script src="../../script.js?v=20261021-02"></script>
+    <script src="../../script.js?v=20261022-01"></script>
+    <script src="../../assets/js/rol-paneles.js?v=20261022-01"></script>
 </body>
 </html>
