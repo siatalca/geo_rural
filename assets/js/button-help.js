@@ -117,8 +117,6 @@
         ['#registroActionsRow .buscar:not([id])', 'Busca registros con los datos escritos (N° de ingreso, nombre, RUT o ROL).', ''],
         ['#registroActionsRow .eliminar', 'Elimina definitivamente el registro cargado y su historial. No se puede deshacer.', 'peligro'],
         ['#registroActionsRow .limpiar', 'Vacía el formulario para empezar otro ingreso. No borra nada guardado.', ''],
-        ['[data-side-tab="solicitudDataSection"]', 'Datos para la solicitud de ingreso que firma el cliente.', ''],
-        ['[data-side-tab="facturaDataSection"]', 'Datos para pedir la factura al contador.', ''],
         ['#adminBranchesBody .admin-edit-btn', 'Carga esta sucursal arriba para cambiar su nombre.', ''],
         ['#adminBranchesBody .admin-delete-btn', 'Elimina esta sucursal.', 'peligro'],
         ['#adminDocumentsBody .admin-edit-btn', 'Carga este estado para cambiar su nombre o categoría.', ''],
