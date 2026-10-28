@@ -126,7 +126,7 @@ const ASSIGNABLE_ROLES_BY_SUPER = Object.freeze([ROLE_SUPER, ROLE_ADMIN, ROLE_SE
 const SUPERUSER_USERNAME = 'admin_sia';
 const GUEST_USERNAME = normalizeText(process.env.GUEST_USERNAME || 'invitado').toLowerCase() || 'invitado';
 const DEFAULT_CREATION_COMMENT = 'creacion y recepcion al iniciar un nuevo registro';
-const SECRETARIA_NO_MOVIMIENTO_DAYS = parsePositiveInt(process.env.SECRETARIA_NO_MOVIMIENTO_DAYS, 8);
+const SECRETARIA_NO_MOVIMIENTO_DAYS = parsePositiveInt(process.env.SECRETARIA_NO_MOVIMIENTO_DAYS, 15);
 const FACTURA_SOLICITUD_ESTADO_PENDIENTE = 'PENDIENTE';
 const FACTURA_SOLICITUD_ESTADO_ENVIADA = 'ENVIADA';
 const FACTURA_SOLICITUD_ESTADO_ANULADA = 'ANULADA';
@@ -1977,6 +1977,17 @@ function isSupervisorUser(user) {
 
 function canUseSecretaryFeatures(user) {
     return isSecretaryUser(user) || isSuperUser(user);
+}
+
+// Boton y alerta de carpetas sin movimiento.
+function canUseNoMovementFollowup(user) {
+    return !isGuestUser(user) && [ROLE_SECRETARIA, ROLE_ADMIN, ROLE_SUPER, ROLE_OPERADOR, ROLE_SUPERVISOR].includes(normalizeUserRole(user?.role, ROLE_OPERADOR));
+}
+
+// Comentario con que se reingresa una carpeta que salio a revision del cliente (sin importar tildes ni mayusculas).
+function isReingresoSubsanadaComment(value) {
+    const text = String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    return /reingres/.test(text) && /subsanad/.test(text);
 }
 
 function canUseInvoiceWorkflow(user) {
@@ -4765,7 +4776,7 @@ const FACTURA_DOC_UPLOAD_ROLES = Object.freeze([ROLE_CONTADOR, ROLE_SECRETARIA, 
 const FACTURA_DOC_VIEW_ROLES = Object.freeze([ROLE_CONTADOR, ROLE_SECRETARIA, ROLE_ADMIN, ROLE_SUPER]);
 // Estados de carpeta que dan el tramite por terminado (para "activas" y "sin movimiento").
 const ESTADOS_CARPETA_CERRADOS = Object.freeze(['certificada', 'rechazada', 'no_admisible', 'con_resolucion_de_abandono', 'con_resolucion_de_desistimiento']);
-const DIAS_SIN_MOVIMIENTO_ALERTA = 8;
+const DIAS_SIN_MOVIMIENTO_ALERTA = SECRETARIA_NO_MOVIMIENTO_DAYS;
 
 function isContadorUser(user) {
     return normalizeUserRole(user?.role, ROLE_OPERADOR) === ROLE_CONTADOR;
@@ -9231,8 +9242,8 @@ app.get('/api/registros/sucursales-disponibles', async (req, res) => {
 
 app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
     try {
-        if (!canUseSecretaryFeatures(req.authUser)) {
-            return res.status(403).json({ message: 'Solo SECRETARIA o SUPER pueden consultar este seguimiento.' });
+        if (!canUseNoMovementFollowup(req.authUser)) {
+            return res.status(403).json({ message: 'Tu rol no puede consultar el seguimiento de carpetas sin movimiento.' });
         }
 
         const registroScope = getRegistroAccessScope(req.authUser, 'r');
@@ -9243,7 +9254,12 @@ app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
         const requestedDays = parsePositiveInt(req.query.dias, SECRETARIA_NO_MOVIMIENTO_DAYS);
         const thresholdDays = Math.max(1, Math.min(requestedDays, 365));
 
-        const where = ['hstats.total_movimientos = 1', 'hstats.primer_movimiento_at <= DATE_SUB(NOW(), INTERVAL ? DAY)'];
+        // El plazo corre desde el ultimo movimiento cuando este es el ingreso (unico comentario)
+        // o un "reingreso de carpeta subsanada"; cualquier movimiento posterior lo detiene.
+        const where = [
+            'hstats.ultimo_movimiento_at <= DATE_SUB(NOW(), INTERVAL ? DAY)',
+            "(hstats.total_movimientos = 1 OR LOWER(ultimo.comentario) LIKE '%subsanad%')"
+        ];
         const values = [thresholdDays];
         if (registroScope.clause) {
             where.push(registroScope.clause);
@@ -9260,36 +9276,56 @@ app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
                     r.comuna,
                     COALESCE(r.updated_by_sucursal, r.created_by_sucursal, '') AS sucursal,
                     hstats.primer_movimiento_at AS created_at,
+                    hstats.ultimo_movimiento_at,
                     hstats.total_movimientos,
-                    TIMESTAMPDIFF(DAY, hstats.primer_movimiento_at, NOW()) AS dias_sin_movimiento
+                    ultimo.comentario AS ultimo_comentario,
+                    TIMESTAMPDIFF(DAY, hstats.ultimo_movimiento_at, NOW()) AS dias_sin_movimiento
                 FROM registros r
                 INNER JOIN (
                     SELECT
                         registro_id,
                         COUNT(*) AS total_movimientos,
-                        MIN(created_at) AS primer_movimiento_at
+                        MIN(created_at) AS primer_movimiento_at,
+                        MAX(created_at) AS ultimo_movimiento_at
                     FROM registro_historial
                     GROUP BY registro_id
                 ) hstats
                     ON hstats.registro_id = r.id
+                INNER JOIN registro_historial ultimo
+                    ON ultimo.id = (
+                        SELECT h2.id FROM registro_historial h2
+                        WHERE h2.registro_id = r.id
+                        ORDER BY h2.created_at DESC, h2.id DESC
+                        LIMIT 1
+                    )
                 WHERE ${where.join(' AND ')}
-                ORDER BY dias_sin_movimiento DESC, hstats.primer_movimiento_at ASC, r.id ASC
+                ORDER BY dias_sin_movimiento DESC, hstats.ultimo_movimiento_at ASC, r.id ASC
                 LIMIT 500
             `,
             values
         );
 
-        const registros = rows.map((row) => ({
-            numIngreso: row.num_ingreso,
-            nombre: row.nombre || '',
-            rut: row.rut || '',
-            region: row.region || '',
-            comuna: row.comuna || '',
-            sucursal: normalizeText(row.sucursal),
-            createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
-            totalMovimientos: Number(row.total_movimientos || 0),
-            diasSinMovimiento: Number(row.dias_sin_movimiento || 0)
-        }));
+        const toIso = (value) => (value instanceof Date ? value.toISOString() : String(value || ''));
+        const registros = rows
+            .map((row) => {
+                const reingreso = Number(row.total_movimientos) > 1;
+                return {
+                    numIngreso: row.num_ingreso,
+                    nombre: row.nombre || '',
+                    rut: row.rut || '',
+                    region: row.region || '',
+                    comuna: row.comuna || '',
+                    sucursal: normalizeText(row.sucursal),
+                    createdAt: toIso(row.created_at),
+                    desdeAt: toIso(row.ultimo_movimiento_at),
+                    motivo: reingreso ? 'REINGRESO SUBSANADA' : 'INGRESO',
+                    totalMovimientos: Number(row.total_movimientos || 0),
+                    diasSinMovimiento: Number(row.dias_sin_movimiento || 0),
+                    valido: !reingreso || isReingresoSubsanadaComment(row.ultimo_comentario)
+                };
+            })
+            .filter((item) => item.valido)
+            .map(({ valido, ...item }) => item);
 
         return res.json({
             thresholdDays,

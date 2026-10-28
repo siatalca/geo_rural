@@ -39,7 +39,7 @@
             intro: 'Trabajas sobre las carpetas disponibles para tu sucursal y mantienes su avance actualizado.',
             steps: [
                 ['Encuentra la carpeta', 'Busca por número de ingreso, ROL, RUT o nombre. Si hay varias coincidencias, selecciona la carpeta correcta antes de hacer cambios.'],
-                ['Actualiza el avance', 'Edita los campos habilitados y guarda comentarios claros sobre cada gestión. Revisa la documentación y las alertas que aparezcan en tu panel.'],
+                ['Actualiza el avance', 'Edita los campos habilitados y guarda comentarios claros sobre cada gestión. Revisa la documentación, las alertas que aparezcan en tu panel y el botón Sin movimiento (carpetas detenidas 15 días o más).'],
                 ['Organiza y exporta', 'Usa los filtros por fechas, región y estado para localizar carpetas y exportar la información disponible para tu rol.'],
                 ['Gestiona solicitudes de factura', 'Prepara las solicitudes desde las opciones de facturación y verifica los antecedentes antes de enviarlas. La creación inicial de registros y la administración de usuarios corresponden a otros roles.']
             ]
@@ -48,7 +48,7 @@
             label: 'Supervisor',
             intro: 'Tu panel RESUMEN muestra los procesos, clientes y montos de la oficina; en REGISTROS consultas carpetas y aportas observaciones.',
             steps: [
-                ['Revisa el resumen', 'En RESUMEN ves carpetas activas, ingresos del mes, montos facturados y pendientes, clientes principales y las carpetas sin movimiento hace 8 días o más. Puedes filtrar por período y sucursal.'],
+                ['Revisa el resumen', 'En RESUMEN ves carpetas activas, ingresos del mes, montos facturados y pendientes, clientes principales y las carpetas sin movimiento hace 15 días o más. Puedes filtrar por período y sucursal.'],
                 ['Consulta los antecedentes', 'Busca la carpeta por número de ingreso, ROL, RUT o nombre y verifica que corresponde al caso que revisarás.'],
                 ['Revisa el historial', 'Consulta los comentarios y movimientos para conocer el avance. Tu rol no permite modificar los datos generales de las carpetas.'],
                 ['Agrega observaciones', 'Guarda comentarios claros con el resultado de tu revisión. Solicita al administrador los cambios de datos, usuarios o configuración que sean necesarios.']

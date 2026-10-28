@@ -18,7 +18,7 @@
         secretariaViewInvoicesBtn: ['Lista las solicitudes de factura recibidas.', ''],
         secretariaQuotationBtn: ['Prepara y envía una cotización por correo al cliente.', ''],
         secretariaEditUtmBtn: ['Cambia el valor de la UTM del mes usado en cotizaciones.', 'cuidado'],
-        secretariaNoMovementBtn: ['Muestra los registros sin movimiento hace 8 días o más.', ''],
+        secretariaNoMovementBtn: ['Muestra las carpetas sin movimiento hace 15 días o más (desde el ingreso o desde un reingreso de carpeta subsanada).', ''],
         adminYearCurrentBtn: ['Trabaja con ingresos del año en curso; el N° de ingreso se asigna solo.', ''],
         adminYearPastBtn: ['Permite ingresar registros de años anteriores escribiendo el N° de ingreso.', ''],
 

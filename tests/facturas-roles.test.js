@@ -84,6 +84,15 @@ test('un usuario tiene uno o dos roles y SUPER nunca se combina', () => {
     assert.equal(ajeno.role, 'SECRETARIA');
 });
 
+test('seguimiento sin movimiento: roles y comentario de reingreso subsanado', () => {
+    const u = (role) => ({ role, username: 'x' });
+    assert.deepEqual(['SECRETARIA', 'ADMIN', 'SUPER', 'OPERADOR', 'SUPERVISOR', 'CONTADOR'].map((r) => s.canUseNoMovementFollowup(u(r))), [true, true, true, true, true, false]);
+    assert.equal(s.isReingresoSubsanadaComment('Reingreso de carpeta subsanada'), true);
+    assert.equal(s.isReingresoSubsanadaComment('REINGRESO DE CARPETA SUBSANADA por el cliente'), true);
+    assert.equal(s.isReingresoSubsanadaComment('Carpeta sale para revisión por parte del cliente'), false);
+    assert.equal(s.isReingresoSubsanadaComment('observaciones subsanadas'), false);
+});
+
 test('el formulario de usuarios valida el rol adicional', () => {
     const superUser = { role: 'SUPER', username: 'admin_sia' };
     const admin = { role: 'ADMIN', username: 'admin' };

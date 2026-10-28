@@ -499,7 +499,7 @@
         $('supervisorKpis').innerHTML = kpiCards([
             ['Carpetas activas', (k.activas || 0).toLocaleString('es-CL'), `${k.cerradasPeriodo || 0} cerradas en el período`, false],
             ['Ingresos este mes', k.ingresosMes || 0, k.ingresosMesAnterior ? `${variacion >= 0 ? '▲' : '▼'} ${Math.abs(variacion)} % vs mes anterior` : 'sin datos del mes anterior', false],
-            ['Sin movimiento 8+ días', k.sinMovimiento || 0, 'requieren seguimiento', (k.sinMovimiento || 0) > 0],
+            ['Sin movimiento 15+ días', k.sinMovimiento || 0, 'requieren seguimiento', (k.sinMovimiento || 0) > 0],
             ['Facturado en el período', clpCorto(k.facturado), `${k.carpetasFacturadas || 0} carpetas`, false],
             ['Pendiente de facturar', clpCorto(k.pendiente), `${k.carpetasPendientes || 0} carpetas con monto`, (k.pendiente || 0) > 0],
             ['Monto promedio por carpeta', clpCorto(conMonto ? ((k.facturado || 0) + (k.pendiente || 0)) / conMonto : 0), 'con monto a facturar', false]

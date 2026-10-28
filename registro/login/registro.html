@@ -39,7 +39,7 @@
                     <button type="button" id="secretariaNoMovementBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-clock" aria-hidden="true"></span>Sin movimiento</button>
                 </div>
                 <span class="admin-bar-sep" id="adminBarSep" aria-hidden="true"></span>
-                <div class="admin-year-toggle" role="group" aria-label="Año de los ingresos">
+                <div class="admin-year-toggle" id="adminYearToggle" role="group" aria-label="Año de los ingresos">
                     <button type="button" id="adminYearCurrentBtn" class="admin-mode-btn">Año actual</button>
                     <button type="button" id="adminYearPastBtn" class="admin-mode-btn">Años anteriores</button>
                 </div>
@@ -565,7 +565,7 @@
             </div>
             <section class="registro-panel role-block">
                 <h4 class="form-section-title">CARPETAS QUE REQUIEREN ATENCIÓN</h4>
-                <p class="helper-text">Activas sin movimiento hace 8 días o más, de la más detenida a la más reciente.</p>
+                <p class="helper-text">Activas sin movimiento hace 15 días o más, de la más detenida a la más reciente.</p>
                 <div class="history-wrapper">
                     <table class="history-table">
                         <thead><tr><th>Nro Ingreso</th><th>Cliente</th><th>Etapa</th><th>Comuna</th><th class="num">Monto</th><th class="num">Sin movimiento</th></tr></thead>
@@ -1280,7 +1280,7 @@
     <div id="secretaryNoMovementOverlay" class="modal-overlay hidden">
         <div class="modal-card secretary-followup-modal-card" role="dialog" aria-modal="true" aria-labelledby="secretaryNoMovementTitle">
             <h3 id="secretaryNoMovementTitle">SEGUIMIENTO DE REGISTROS SIN MOVIMIENTO</h3>
-            <p class="helper-text">Registros con 8 o mas dias desde su primer comentario y con un solo comentario total.</p>
+            <p class="helper-text">Carpetas con 15 o más días sin movimiento: desde su ingreso (con un solo comentario) o desde el comentario «reingreso de carpeta subsanada».</p>
             <form id="secretaryNoMovementFilterForm" class="date-range-form" autocomplete="off">
                 <div class="form-row form-row-triple">
                     <div class="form-group">
@@ -1327,6 +1327,7 @@
                             <th>NRO INGRESO</th>
                             <th>FECHA INGRESO</th>
                             <th>DIAS</th>
+                            <th>MOTIVO</th>
                             <th>NOMBRE</th>
                             <th>RUT</th>
                             <th>SUCURSAL</th>
@@ -1336,7 +1337,7 @@
                     </thead>
                     <tbody id="secretaryNoMovementBody">
                         <tr>
-                            <td colspan="8">Sin registros pendientes para mostrar.</td>
+                            <td colspan="9">Sin registros pendientes para mostrar.</td>
                         </tr>
                     </tbody>
                 </table>

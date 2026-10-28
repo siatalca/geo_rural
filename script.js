@@ -20,7 +20,7 @@ const DEFAULT_DOCUMENT_GROUP_TITLES = [
 ];
 const OPERATOR_LAST_DEST_EMAIL_STORAGE = `${STORAGE_PREFIX}_last_invoice_destination_email`;
 const SECRETARY_DAILY_ALERT_STORAGE_PREFIX = `${STORAGE_PREFIX}_secretary_no_movement_seen_`;
-const SECRETARY_NO_MOVEMENT_DAYS = 8;
+const SECRETARY_NO_MOVEMENT_DAYS = 15;
 const APP_BUILD = '2026-06-12-03';
 const MAIL_SEND_PROGRESS_MIN_MS = 1600;
 const MAIL_SEND_PROGRESS_FINAL_MS = 900;
@@ -1903,6 +1903,7 @@ function showAppForUser(user) {
     updateRegistroActionButtons();
     if (userCanAccessAdminConsole) {
         ui.adminPanel.classList.remove('hidden');
+        document.getElementById('adminYearToggle')?.classList.remove('hidden');
         if (ui.adminPanelTitle) {
             if (isSuperUser(user)) {
                 ui.adminPanelTitle.textContent = 'MENU SUPERUSUARIO';
@@ -1943,7 +1944,7 @@ function showAppForUser(user) {
             ui.secretariaEditUtmBtn.classList.toggle('hidden', !canUseSecretaryFeatures(user));
         }
         if (ui.secretariaNoMovementBtn) {
-            ui.secretariaNoMovementBtn.classList.toggle('hidden', !canUseSecretaryFeatures(user));
+            ui.secretariaNoMovementBtn.classList.toggle('hidden', !canUseNoMovementFollowup(user));
         }
         if (!canUseSecretaryFeatures(user)) {
             closeSecretariaInvoicesModal();
@@ -2035,6 +2036,16 @@ function showAppForUser(user) {
         }
         if (ui.secretariaNoMovementBtn) {
             ui.secretariaNoMovementBtn.classList.add('hidden');
+        }
+        if (canUseNoMovementFollowup(user)) {
+            // Operador y supervisor: el menu muestra solo el seguimiento de carpetas sin movimiento.
+            ui.adminPanel.classList.remove('hidden');
+            if (ui.adminPanelTitle) {
+                ui.adminPanelTitle.textContent = isSupervisorUser(user) ? 'MENU SUPERVISOR' : 'MENU OPERADOR';
+            }
+            document.querySelectorAll('#adminMorePanel .admin-more-item').forEach((item) => item.classList.add('hidden'));
+            document.getElementById('adminYearToggle')?.classList.add('hidden');
+            ui.secretariaNoMovementBtn?.classList.remove('hidden');
         }
 
         setOperatorBillingVisibility(canUseOperatorBilling(user));
@@ -2270,6 +2281,16 @@ function isSupervisorUser(user) {
 
 function canUseSecretaryFeatures(user) {
     return isSecretaryUser(user) || isSuperUser(user);
+}
+
+// Boton "Sin movimiento" (mismo permiso que en el servidor).
+function canUseNoMovementFollowup(user) {
+    return !isGuestUser(user) && (canUseSecretaryFeatures(user) || isAdminUser(user) || isOperatorUser(user) || isSupervisorUser(user));
+}
+
+// Alerta diaria al entrar: roles que hacen el seguimiento de las carpetas.
+function shouldShowNoMovementAlert(user) {
+    return !isGuestUser(user) && (isSecretaryUser(user) || isOperatorUser(user) || isSupervisorUser(user));
 }
 
 function isGuestUser(user) {
@@ -5115,7 +5136,7 @@ function renderSecretaryNoMovementRows(records) {
 
     ui.secretaryNoMovementBody.innerHTML = '';
     if (!Array.isArray(records) || records.length === 0) {
-        ui.secretaryNoMovementBody.innerHTML = '<tr><td colspan="8">Sin registros pendientes para mostrar.</td></tr>';
+        ui.secretaryNoMovementBody.innerHTML = '<tr><td colspan="9">Sin registros pendientes para mostrar.</td></tr>';
         return;
     }
 
@@ -5127,6 +5148,7 @@ function renderSecretaryNoMovementRows(records) {
             <td>${escapeHtml(item?.numIngreso || '')}</td>
             <td>${escapeHtml(formatDateTime(item?.createdAt || ''))}</td>
             <td>${escapeHtml(daysLabel)}</td>
+            <td>${escapeHtml(item?.motivo || 'INGRESO')}</td>
             <td>${escapeHtml(item?.nombre || '')}</td>
             <td>${escapeHtml(item?.rut || '')}</td>
             <td>${escapeHtml(item?.sucursal || '')}</td>
@@ -5189,7 +5211,7 @@ function applySecretaryNoMovementFilters() {
 
     renderSecretaryNoMovementRows(filteredRecords);
     if (sourceRecords.length === 0) {
-        setFormMessage(ui.secretaryNoMovementMessage, 'No hay registros con 8 o mas dias y comentario unico.', 'success');
+        setFormMessage(ui.secretaryNoMovementMessage, `No hay carpetas con ${SECRETARY_NO_MOVEMENT_DAYS} o mas dias sin movimiento.`, 'success');
         return true;
     }
 
@@ -5242,8 +5264,8 @@ function openSecretaryNoMovementModal() {
 }
 
 async function handleOpenSecretaryNoMovementModal() {
-    if (!canUseSecretaryFeatures(currentUser)) {
-        setFormMessage(ui.formMessage, 'Solo SECRETARIA o SUPER pueden ver este seguimiento.', 'error');
+    if (!canUseNoMovementFollowup(currentUser)) {
+        setFormMessage(ui.formMessage, 'Tu rol no puede ver este seguimiento.', 'error');
         return;
     }
 
@@ -5256,7 +5278,7 @@ async function handleOpenSecretaryNoMovementModal() {
 }
 
 async function maybeShowSecretaryNoMovementAlert(user) {
-    if (!isSecretaryUser(user) || isGuestUser(user)) {
+    if (!shouldShowNoMovementAlert(user)) {
         return;
     }
 
