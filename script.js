@@ -7598,7 +7598,8 @@ function configureIngresoFieldByRole(user) {
 }
 
 function setAdminManagementView(view) {
-    if (!ui || !canAccessAdminConsole(currentUser)) {
+    // Sin consola de administracion (operador, supervisor) siempre queda la vista de registro.
+    if (!ui || !currentUser) {
         return;
     }
 
