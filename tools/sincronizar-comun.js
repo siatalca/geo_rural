@@ -29,6 +29,7 @@ const COMMON_FILES = [
     'tests/bootstrap.test.js',
     'tests/server.test.js',
     'tests/facturas-roles.test.js',
+    'tests/descuento-factura.test.js',
     'tools/sincronizar-comun.js',
     'docs/CODIGO_COMUN.md'
 ];

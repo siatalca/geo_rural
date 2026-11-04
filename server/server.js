@@ -2348,6 +2348,22 @@ function toApiRow(row) {
     };
 }
 
+// Solo lectura de ESTADO FACTURA, numero y cambios de factura: todos menos operador, invitado y publico.
+// Escribir esos datos y ver el descuento sigue siendo de secretaria, admin y super (canAccessSolicitudData).
+function canSeeFacturaData(user) {
+    return Boolean(user) && !isOperatorUser(user) && !isGuestUser(user);
+}
+
+// El numero de factura tambien delata el estado, por eso se quita junto con el.
+function toApiRowForUser(row, user) {
+    const response = toApiRow(row);
+    if (!canSeeFacturaData(user)) {
+        delete response.estado;
+        delete response.factura.numeroFactura;
+    }
+    return response;
+}
+
 function toFacturaSolicitudRow(row) {
     const parsedMonto = Number(row.monto_facturar);
     const montoValue =
@@ -2410,6 +2426,55 @@ function toPublicProgressHistoryRow(row) {
         fecha: normalizeText(row?.fecha),
         comentario: String(row?.comentario || '')
     };
+}
+
+// Quita de un comentario automatico de MODIFICACION el descuento y, salvo con soloDescuento, tambien el estado de factura, su numero y el monto.
+function redactFacturaHistoryComment(comment, soloDescuento = false) {
+    const reservedLabels = ['estado de factura', 'numero', 'monto a facturar'];
+    const kept = [];
+    for (const part of String(comment || '').split(' | ')) {
+        if (!soloDescuento && /^modificacion de (estado de factura|factura numero|monto a facturar):/.test(part)) {
+            continue;
+        }
+
+        if (/datos de solicitud \(.*\)$/.test(part)) {
+            const withoutDescuento = part.replace(/(, )?descuento \(%\)\)$/, ')');
+            if (!/datos de solicitud \(\)$/.test(withoutDescuento)) {
+                kept.push(withoutDescuento);
+            }
+            continue;
+        }
+
+        // Forma resumida: "modificacion resumida (5 cambios): registro: a, b" y "factura: c, d".
+        const summary = /^((?:modificacion resumida \(\d+ cambios\): )?)(registro|factura): (.*)$/.exec(part);
+        if (summary && !soloDescuento) {
+            const visible = summary[3].split(', ').filter((label) => !reservedLabels.includes(label.replace(/ \+\d+ mas$/, '')));
+            if (visible.length > 0) {
+                kept.push(`${summary[1]}${summary[2]}: ${visible.join(', ')}`);
+            } else if (summary[1]) {
+                kept.push(summary[1].replace(/: $/, ''));
+            }
+            continue;
+        }
+
+        kept.push(part);
+    }
+    return kept.join(' | ');
+}
+
+// Historial censurado en lo automatico: sin datos de factura o, con soloDescuento, solo sin el descuento. Los comentarios escritos a mano no se tocan.
+function redactFacturaHistory(historial, soloDescuento = false) {
+    return historial.flatMap((row) => {
+        const accion = normalizeText(row.accion).toUpperCase();
+        if (accion === 'FACTURA' && !soloDescuento) {
+            return [];
+        }
+        if (accion !== 'MODIFICACION') {
+            return [row];
+        }
+        const comentario = redactFacturaHistoryComment(row.comentario, soloDescuento);
+        return comentario ? [{ ...row, comentario }] : [];
+    });
 }
 
 function toUtmMensualRow(row) {
@@ -4646,11 +4711,44 @@ const SOLICITUD_FIELDS = Object.freeze([
     ['rolComuna', 'rol_comuna', 'comuna del rol', 120],
     ['superficie', 'superficie', 'superficie a subdividir', 80],
     ['profesionalNombre', 'profesional_nombre', 'nombre profesional', 255],
-    ['profesionalTitulo', 'profesional_titulo', 'titulo profesional', 255]
+    ['profesionalTitulo', 'profesional_titulo', 'titulo profesional', 255],
+    // El largo es del texto recibido; se guarda redondeado a 2 decimales (cabe en VARCHAR(6)).
+    ['descuentoPorcentaje', 'descuento_porcentaje', 'descuento (%)', 20]
 ]);
 
 function canAccessSolicitudData(user) {
     return hasBackofficeRegistroAccess(user) && !isGuestUser(user);
+}
+
+// Descuento en % (0 a 100, con punto o coma). Vacio o 0 significa sin descuento (value null).
+function parseDescuentoPorcentaje(value) {
+    if (value === '' || value === null || typeof value === 'undefined') {
+        return { isValid: true, value: null };
+    }
+    if (typeof value !== 'string' && typeof value !== 'number') {
+        return { isValid: false, value: null };
+    }
+
+    const raw = String(value).trim();
+    if (!raw) {
+        return { isValid: true, value: null };
+    }
+    if (!/^\d+(?:[.,]\d+)?$/.test(raw)) {
+        return { isValid: false, value: null };
+    }
+
+    const parsed = Number(raw.replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed > 100) {
+        return { isValid: false, value: null };
+    }
+
+    const rounded = Number(parsed.toFixed(2));
+    return { isValid: true, value: rounded > 0 ? rounded : null };
+}
+
+// Monto a facturar: total con IVA menos el descuento, en pesos enteros.
+function aplicarDescuentoAlTotal(total, porcentaje) {
+    return Math.round(total * (1 - (porcentaje || 0) / 100));
 }
 
 // Devuelve { data } con los campos normalizados, { data: null } si no vino solicitud o { error }.
@@ -4679,6 +4777,11 @@ function parseSolicitudPayload(raw) {
         }
         data.terceroRut = formattedRut;
     }
+    const parsedDescuento = parseDescuentoPorcentaje(data.descuentoPorcentaje);
+    if (!parsedDescuento.isValid) {
+        return { error: 'DESCUENTO (%) debe ser un numero entre 0 y 100.' };
+    }
+    data.descuentoPorcentaje = parsedDescuento.value === null ? '' : String(parsedDescuento.value);
 
     return { data };
 }
@@ -4934,6 +5037,7 @@ async function createRegistroSolicitudTable() {
             superficie VARCHAR(80) NULL,
             profesional_nombre VARCHAR(255) NULL,
             profesional_titulo VARCHAR(255) NULL,
+            descuento_porcentaje VARCHAR(6) NULL,
             updated_by VARCHAR(120) NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -5223,6 +5327,11 @@ async function fetchHistoryByRegistroId(registroId) {
     );
 
     return rows.map(toHistoryRow);
+}
+
+async function fetchHistoryForUser(registroId, user) {
+    const historial = await fetchHistoryByRegistroId(registroId);
+    return canAccessSolicitudData(user) ? historial : redactFacturaHistory(historial, canSeeFacturaData(user));
 }
 
 async function createSystemConfigTable() {
@@ -5672,6 +5781,7 @@ async function initDatabase() {
         await ensureColumn('registro_solicitud', 'solicita_tercero', '`solicita_tercero` TINYINT(1) NULL AFTER propietario_rut');
         await ensureColumn('registro_solicitud', 'tercero_nombre', '`tercero_nombre` VARCHAR(255) NULL AFTER solicita_tercero');
         await ensureColumn('registro_solicitud', 'tercero_rut', '`tercero_rut` VARCHAR(20) NULL AFTER tercero_nombre');
+        await ensureColumn('registro_solicitud', 'descuento_porcentaje', '`descuento_porcentaje` VARCHAR(6) NULL AFTER profesional_titulo');
         await createRegistroDocumentAlertsTable();
         await createUtmMensualTable();
         await createCotizacionServiciosTable();
@@ -5957,7 +6067,7 @@ app.get('/api/public/registros/progreso', async (req, res) => {
             region: normalizeText(targetRow.region),
             comuna: normalizeText(targetRow.comuna),
             rol: normalizeText(targetRow.rol),
-            historial: historial.map(toPublicProgressHistoryRow)
+            historial: redactFacturaHistory(historial).map(toPublicProgressHistoryRow)
         });
     } catch (error) {
         console.error(error);
@@ -6209,6 +6319,57 @@ app.get('/api/cotizaciones/resumen', async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: 'No fue posible preparar el resumen de cotizacion.' });
+    }
+});
+
+// Monto = total con IVA de la cotizacion menos el descuento. Con numIngreso usa la UTM del mes de ese ingreso
+// (igual que la solicitud impresa) y, si no viene descuentoPorcentaje, el descuento guardado en ese ingreso.
+app.get('/api/cotizaciones/calculo', async (req, res) => {
+    try {
+        if (!canAccessSolicitudData(req.authUser)) {
+            return res.status(403).json({ message: 'Solo secretaria, admin o super pueden calcular el monto.' });
+        }
+
+        const numLotes = req.query.numLotes ?? '';
+        if (typeof numLotes !== 'string' || !/^\s*\d*\s*$/.test(numLotes) || !parseNumLotes(numLotes.trim()).isValid) {
+            return res.status(400).json({ message: 'NRO DE LOTES debe ser un numero entero positivo.' });
+        }
+
+        const hasDescuento = typeof req.query.descuentoPorcentaje !== 'undefined';
+        const parsedDescuento = parseDescuentoPorcentaje(req.query.descuentoPorcentaje);
+        if (!parsedDescuento.isValid) {
+            return res.status(400).json({ message: 'DESCUENTO (%) debe ser un numero entre 0 y 100.' });
+        }
+        let porcentaje = parsedDescuento.value || 0;
+
+        let ingresoDate = new Date();
+        const numIngreso = normalizeText(req.query.numIngreso);
+        if (numIngreso) {
+            if (!parseNumIngreso(numIngreso)) {
+                return res.status(400).json({ message: 'NRO INGRESO invalido.' });
+            }
+            const [rows] = await pool.execute('SELECT id, created_at FROM registros WHERE num_ingreso = ? LIMIT 1', [numIngreso]);
+            if (!rows.length) {
+                return res.status(404).json({ message: 'Registro no encontrado.' });
+            }
+            ingresoDate = new Date(rows[0].created_at);
+            if (!hasDescuento) {
+                const solicitud = await getSolicitudRow(pool, rows[0].id);
+                porcentaje = parseDescuentoPorcentaje(solicitud?.descuento_porcentaje).value || 0;
+            }
+        }
+
+        const cotizacion = await buildSolicitudCotizacion(numLotes.trim(), ingresoDate);
+        const monto = cotizacion ? aplicarDescuentoAlTotal(cotizacion.total, porcentaje) : null;
+        return res.json({
+            cotizacion,
+            descuentoPorcentaje: porcentaje,
+            descuentoMonto: cotizacion ? cotizacion.total - monto : null,
+            monto
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible calcular el monto.' });
     }
 });
 
@@ -6780,7 +6941,15 @@ app.get('/api/facturas/solicitudes', async (req, res) => {
             values
         );
 
-        const solicitudes = rows.map(toFacturaSolicitudRow);
+        // El folio de la factura cargada delata el estado de factura: el operador no lo recibe.
+        const hideDocumento = isOperatorUser(req.authUser);
+        const solicitudes = rows.map((row) => {
+            const solicitud = toFacturaSolicitudRow(row);
+            if (hideDocumento) {
+                delete solicitud.documento;
+            }
+            return solicitud;
+        });
         return res.json({ solicitudes });
     } catch (error) {
         console.error(error);
@@ -8371,6 +8540,9 @@ app.post('/api/registros', requireWriteAccess, async (req, res) => {
         });
     }
     payload.estadoCarpeta = '';
+    if (!canAccessSolicitudData(req.authUser)) {
+        payload.estado = '';
+    }
 
     const canEditFacturaNumero = isSecretaryUser(req.authUser) && !isGuestUser(req.authUser);
     if (!canEditFacturaNumero || payload.estado !== 'facturada') {
@@ -8667,6 +8839,11 @@ app.put('/api/registros/:numIngreso', requireWriteAccess, async (req, res) => {
             payload.documentos = parseStoredDocumentList(existingRows[0].documentos);
         } else {
             payload.estadoCarpeta = normalizeFolderStatusValue(existingRows[0].estado_carpeta);
+        }
+
+        // ESTADO FACTURA solo lo cambian secretaria, admin y super: venga o no en el cuerpo, se conserva.
+        if (!canAccessSolicitudData(req.authUser)) {
+            payload.estado = normalizeEstado(existingRows[0].estado);
         }
 
         if (!hasFacturaPayload) {
@@ -9400,7 +9577,6 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
                     rut,
                     region,
                     comuna,
-                    estado,
                     estado_carpeta,
                     created_by_sucursal,
                     updated_by_sucursal,
@@ -9423,7 +9599,6 @@ app.get('/api/registros/carpeta-estados', async (req, res) => {
             region: row.region || '',
             comuna: row.comuna || '',
             sucursal: normalizeText(row.updated_by_sucursal || row.created_by_sucursal),
-            estado: normalizeEstado(row.estado),
             estadoCarpeta: normalizeFolderStatusValue(row.estado_carpeta),
             createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
             updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at || row.created_at || '')
@@ -9607,6 +9782,7 @@ app.get('/api/registros/buscar-rango-fechas', async (req, res) => {
             values
         );
 
+        const canSeeEstadoFactura = canSeeFacturaData(req.authUser);
         const registros = rows.map((row) => ({
             numIngreso: row.num_ingreso,
             nombre: row.nombre,
@@ -9618,7 +9794,7 @@ app.get('/api/registros/buscar-rango-fechas', async (req, res) => {
             region: row.region,
             comuna: row.comuna,
             sucursal: normalizeText(row.updated_by_sucursal || row.created_by_sucursal),
-            estado: normalizeEstado(row.estado),
+            ...(canSeeEstadoFactura ? { estado: normalizeEstado(row.estado) } : {}),
             estadoCarpeta: normalizeFolderStatusValue(row.estado_carpeta),
             createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
         }));
@@ -9726,14 +9902,14 @@ app.get('/api/registros/buscar', async (req, res) => {
             });
         }
 
-        const response = toApiRow(rows[0]);
+        const response = toApiRowForUser(rows[0], req.authUser);
         if (isGuestUser(req.authUser)) {
             response.comentario = '';
             response.historial = [];
             return res.json(response);
         }
 
-        response.historial = await fetchHistoryByRegistroId(rows[0].id);
+        response.historial = await fetchHistoryForUser(rows[0].id, req.authUser);
         return res.json(response);
     } catch (error) {
         console.error(error);
@@ -9801,7 +9977,7 @@ app.get('/api/registros/:numIngreso/historial', async (req, res) => {
             return res.json({ historial: [] });
         }
 
-        const historial = await fetchHistoryByRegistroId(rows[0].id);
+        const historial = await fetchHistoryForUser(rows[0].id, req.authUser);
         return res.json({ historial });
     } catch (error) {
         console.error(error);

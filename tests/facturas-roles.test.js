@@ -93,6 +93,27 @@ test('seguimiento sin movimiento: roles y comentario de reingreso subsanado', ()
     assert.equal(s.isReingresoSubsanadaComment('observaciones subsanadas'), false);
 });
 
+test('el descuento de la solicitud se valida entre 0 y 100', () => {
+    assert.equal(s.parseSolicitudPayload({ descuentoPorcentaje: '10,5' }).data.descuentoPorcentaje, '10.5');
+    assert.equal(s.parseSolicitudPayload({ descuentoPorcentaje: '100' }).data.descuentoPorcentaje, '100');
+    assert.equal(s.parseSolicitudPayload({ descuentoPorcentaje: '0' }).data.descuentoPorcentaje, '');
+    assert.equal(s.parseSolicitudPayload({}).data.descuentoPorcentaje, '');
+    assert.match(s.parseSolicitudPayload({ descuentoPorcentaje: '101' }).error, /DESCUENTO/);
+    assert.match(s.parseSolicitudPayload({ descuentoPorcentaje: 'abc' }).error, /DESCUENTO/);
+    assert.match(s.parseSolicitudPayload({ descuentoPorcentaje: '-5' }).error, /DESCUENTO/);
+    assert.equal(s.parseSolicitudPayload({ descuentoPorcentaje: '33.3333' }).data.descuentoPorcentaje, '33.33');
+    assert.equal(s.parseSolicitudPayload({ descuentoPorcentaje: '0.001' }).data.descuentoPorcentaje, '');
+    assert.equal(s.parseSolicitudPayload({ descuentoPorcentaje: 12 }).data.descuentoPorcentaje, '12');
+    for (const invalido of ['100.01', '1e1', '0x10', 'Infinity', '1,2,3']) {
+        assert.match(s.parseSolicitudPayload({ descuentoPorcentaje: invalido }).error, /DESCUENTO/, invalido);
+    }
+    // La misma regla usa la ruta de calculo; una lista en la consulta no es un numero.
+    assert.equal(s.parseDescuentoPorcentaje(['5', '6']).isValid, false);
+    assert.equal(s.aplicarDescuentoAlTotal(380562, 12.5), 332992);
+    assert.equal(s.aplicarDescuentoAlTotal(380562, 0), 380562);
+    assert.equal(s.aplicarDescuentoAlTotal(380562, 100), 0);
+});
+
 test('el formulario de usuarios valida el rol adicional', () => {
     const superUser = { role: 'SUPER', username: 'admin_sia' };
     const admin = { role: 'ADMIN', username: 'admin' };

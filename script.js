@@ -1016,6 +1016,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('imprimirSolicitudBtn')?.addEventListener('click', () => void handleImprimirSolicitud());
     registerAdminBarMenu();
     registerSolicitudTerceroToggle();
+    registerFacturaMontoCalculo();
     if (ui.adminMailTemplateType) {
         ui.adminMailTemplateType.addEventListener('change', () => {
             persistCurrentAdminTemplateEditorValue();
@@ -1586,6 +1587,7 @@ async function handleLoginSubmit(event) {
         setApiKey(result.apiWriteKey || '');
         ui.loginForm.reset();
         setFormMessage(ui.loginMessage, '', '');
+        clearNoMovementLoginMark(result.user);
         await activateAuthenticatedUser(result.user, { passwordMessage: '' });
     } catch (error) {
         if (isAuthFailureError(error)) {
@@ -1625,6 +1627,7 @@ async function handleGuestLogin() {
         setApiKey(result.apiWriteKey || '');
         ui.loginForm.reset();
         setFormMessage(ui.loginMessage, '', '');
+        clearNoMovementLoginMark(result.user);
         await activateAuthenticatedUser(result.user, { passwordMessage: '' });
     } catch (error) {
         if (isAuthFailureError(error)) {
@@ -1879,8 +1882,13 @@ function showAppForUser(user) {
     loadedComentarioOriginal = '';
     resetFacturaForm();
     syncFacturaFromMainForm();
-    setFacturaContainerVisibility(canUseFacturaContainer(user));
+    // Admin ve solo MONTO A FACTURAR: los demas datos, el envio al contador y la lista pendiente no son de su rol.
+    const facturaSoloMonto = canUseSolicitudData(user) && !canUseFacturaContainer(user);
+    setFacturaContainerVisibility(canUseFacturaContainer(user) || facturaSoloMonto);
+    document.querySelectorAll('.factura-completa').forEach((element) => element.classList.toggle('hidden', facturaSoloMonto));
     setSolicitudContainerVisibility(canUseSolicitudData(user));
+    // Operador e invitado no reciben ESTADO FACTURA: el select mostraria su valor por defecto.
+    document.getElementById('estadoFacturaGroup')?.classList.toggle('hidden', !canSeeEstadoFactura(user));
     setComentarioVisibilityByUser(user);
     setGuestReadOnlyUiState(user);
     syncFacturaNumeroVisibility({ clearOnHide: false });
@@ -2279,6 +2287,15 @@ function isSupervisorUser(user) {
     return normalizeUserRole(user?.role) === 'SUPERVISOR';
 }
 
+function isContadorUser(user) {
+    return normalizeUserRole(user?.role) === 'CONTADOR';
+}
+
+// Supervisor y contador lo ven de solo lectura; solo secretaria, admin y super lo cambian.
+function canSeeEstadoFactura(user) {
+    return canUseSolicitudData(user) || (!isGuestUser(user) && (isSupervisorUser(user) || isContadorUser(user)));
+}
+
 function canUseSecretaryFeatures(user) {
     return isSecretaryUser(user) || isSuperUser(user);
 }
@@ -2533,7 +2550,7 @@ function setGuestReadOnlyUiState(user) {
 
         if (!isGuest) {
             if (!isSupervisorRestricted && !isOperatorRestricted) {
-                control.disabled = false;
+                control.disabled = control === ui.estado && isContadorUser(user);
                 return;
             }
 
@@ -2807,7 +2824,8 @@ const SOLICITUD_FIELD_IDS = Object.freeze({
     rolComuna: 'solicitudRolComuna',
     superficie: 'solicitudSuperficie',
     profesionalNombre: 'solicitudProfesionalNombre',
-    profesionalTitulo: 'solicitudProfesionalTitulo'
+    profesionalTitulo: 'solicitudProfesionalTitulo',
+    descuentoPorcentaje: 'solicitudDescuento'
 });
 let solicitudLoadToken = 0;
 let solicitudFieldsVisible = false;
@@ -2903,6 +2921,114 @@ function registerSolicitudTerceroToggle() {
     document.getElementById('solicitudTercero')?.addEventListener('change', syncSolicitudTerceroRow);
 }
 
+const DESCUENTO_INVALIDO_MENSAJE = 'DESCUENTO (%) debe ser un numero entre 0 y 100.';
+
+// Un valor que el campo numerico no entiende llega como texto vacio: sin revisar validity pasaria por "sin descuento".
+function getDescuentoInputError() {
+    const validity = document.getElementById('solicitudDescuento')?.validity;
+    if (!canUseSolicitudData(currentUser) || !validity) {
+        return '';
+    }
+    return validity.badInput || validity.rangeUnderflow || validity.rangeOverflow ? DESCUENTO_INVALIDO_MENSAJE : '';
+}
+
+// Monto a facturar: lo calcula el servidor (total con IVA del tramo de lotes y UTM, menos el descuento).
+// Solo recalcula cuando el usuario cambia lotes o descuento; despues el monto se puede corregir a mano.
+let facturaMontoCalculoToken = 0;
+let facturaMontoCalculoEnCurso = null;
+let facturaMontoCalculoConError = false;
+let facturaMontoAvisoVisible = false;
+
+// bloqueaGuardado: el monto en pantalla no responde a los lotes y descuento actuales; GUARDAR y MODIFICAR esperan una correccion.
+function setFacturaMontoAviso(message, bloqueaGuardado = false, tipo = 'error') {
+    if (message || facturaMontoAvisoVisible) {
+        setFormMessage(ui?.facturaFormMessage, message, message ? tipo : '');
+    }
+    facturaMontoAvisoVisible = Boolean(message);
+    facturaMontoCalculoConError = bloqueaGuardado;
+}
+
+function cancelFacturaMontoCalculo() {
+    facturaMontoCalculoToken += 1;
+    setFacturaMontoAviso('');
+}
+
+function blockSaveOnFacturaMontoError(messageElement = ui.formMessage) {
+    if (!facturaMontoCalculoConError) {
+        return false;
+    }
+    setFormMessage(messageElement, 'MONTO A FACTURAR no corresponde a los lotes y descuento actuales: corrigelos o escribe el monto a mano.', 'error');
+    ui.facturaMonto?.focus();
+    return true;
+}
+
+function applyFacturaMontoCalculado(monto) {
+    if (monto === null) {
+        // Sin monto calculado se conserva el valor actual; si hay uno, puede ser de otros lotes y debe revisarse.
+        setFacturaMontoAviso('Monto no calculado, sin tramo o UTM: ingrésalo a mano.', Boolean(ui.facturaMonto.value.trim()));
+    } else if (monto === 0) {
+        ui.facturaMonto.value = '';
+        setFacturaMontoAviso('Descuento del 100 %: sin monto a facturar.', false, '');
+    } else {
+        ui.facturaMonto.value = formatInvoiceAmountForInput(String(monto));
+        setFacturaMontoAviso('');
+    }
+    updateRegistroActionButtons();
+}
+
+async function requestFacturaMontoCalculo(token) {
+    const descuentoError = getDescuentoInputError();
+    if (descuentoError) {
+        ui.facturaMonto.value = '';
+        setFacturaMontoAviso(`No se calculo el monto: ${descuentoError}`, true);
+        updateRegistroActionButtons();
+        return;
+    }
+
+    const query = new URLSearchParams({
+        numLotes: String(document.getElementById('numLotes')?.value || '').trim(),
+        descuentoPorcentaje: String(document.getElementById('solicitudDescuento')?.value || '').trim()
+    });
+    if (loadedIngresoOriginal) {
+        query.set('numIngreso', loadedIngresoOriginal);
+    }
+
+    try {
+        const { monto } = await apiRequest(`/cotizaciones/calculo?${query.toString()}`);
+        if (token !== facturaMontoCalculoToken) {
+            return;
+        }
+        if (monto !== null && !Number.isFinite(monto)) {
+            throw new Error('Respuesta invalida del servidor.');
+        }
+        applyFacturaMontoCalculado(monto);
+    } catch (error) {
+        if (token !== facturaMontoCalculoToken) {
+            return;
+        }
+        // Se conserva el valor actual y queda bloqueado el guardado hasta recalcular o escribirlo a mano.
+        setFacturaMontoAviso(`No se calculo el monto: ${error.message || 'intenta de nuevo o ingresalo a mano.'}`, true);
+        updateRegistroActionButtons();
+    }
+}
+
+function syncFacturaMontoFromCotizacion() {
+    if (!canUseSolicitudData(currentUser) || !ui?.facturaMonto) {
+        return;
+    }
+
+    facturaMontoCalculoToken += 1;
+    facturaMontoCalculoEnCurso = requestFacturaMontoCalculo(facturaMontoCalculoToken);
+}
+
+function registerFacturaMontoCalculo() {
+    ['numLotes', 'solicitudDescuento'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('input', syncFacturaMontoFromCotizacion);
+    });
+    // Lo escrito a mano manda sobre un calculo que venga en camino.
+    document.getElementById('facturaMonto')?.addEventListener('input', cancelFacturaMontoCalculo);
+}
+
 function resetSolicitudForm() {
     solicitudLoadToken += 1;
     Object.values(SOLICITUD_FIELD_IDS).forEach((id) => {
@@ -2992,7 +3118,16 @@ async function handleImprimirSolicitud() {
 async function printSolicitudIngreso(numIngreso, registro) {
     try {
         const result = await apiRequest(`/registros/${encodeURIComponent(numIngreso)}/solicitud`);
-        openSolicitudPrintFrame(buildSolicitudPrintHtml(registro || {}, result.solicitud || {}, result.impresion || {}));
+        const impresion = result.impresion || {};
+        let descuento = null;
+        if (impresion.cotizacion && result.solicitud?.descuentoPorcentaje) {
+            const query = new URLSearchParams({ numLotes: String(registro?.numLotes ?? ''), numIngreso });
+            descuento = await apiRequest(`/cotizaciones/calculo?${query.toString()}`);
+            if (!Number.isFinite(descuento?.monto) || !Number.isFinite(descuento?.descuentoMonto)) {
+                throw new Error('No fue posible calcular el descuento de la solicitud.');
+            }
+        }
+        openSolicitudPrintFrame(buildSolicitudPrintHtml(registro || {}, result.solicitud || {}, impresion, descuento));
     } catch (error) {
         setFormMessage(ui.formMessage, error.message || 'No fue posible preparar la solicitud para imprimir.', 'error');
     }
@@ -3013,7 +3148,7 @@ function formatSolicitudPesos(value) {
 }
 
 // Hoja oficio con el formato de la solicitud en papel; los textos propios de cada empresa vienen de assets/site/site.js.
-function buildSolicitudPrintHtml(registro, solicitud, impresion) {
+function buildSolicitudPrintHtml(registro, solicitud, impresion, descuento = null) {
     const texts = SITE.solicitudIngreso || {};
     const empresa = texts.empresa || SITE.firma?.empresa || APP_NAME;
     const cot = impresion.cotizacion || null;
@@ -3029,6 +3164,10 @@ function buildSolicitudPrintHtml(registro, solicitud, impresion) {
     const conTercero = solicitud.solicitaTercero === '1';
     const solicitante = conTercero ? { nombre: solicitud.terceroNombre, rut: solicitud.terceroRut } : { nombre: registro.nombre, rut: registro.rut };
     const propietario = conTercero ? { nombre: registro.nombre, rut: registro.rut } : { nombre: '', rut: '' };
+    const filasDescuento = cot && descuento
+        ? `<tr><td colspan="2">Descuento: ${v(Number(descuento.descuentoPorcentaje).toLocaleString('es-CL'))} %</td><td colspan="2" class="right">- ${v(formatSolicitudPesos(descuento.descuentoMonto))}</td></tr>
+    <tr><td colspan="2"><strong>Total a pagar (con descuento):</strong></td><td colspan="2" class="right"><strong>${v(formatSolicitudPesos(descuento.monto))}</strong></td></tr>`
+        : '';
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -3075,6 +3214,7 @@ function buildSolicitudPrintHtml(registro, solicitud, impresion) {
     <tr><td colspan="2">Valor U.T.M. ${cot ? v(utmUnits) + ' + IVA' : ''}</td><td colspan="2">Valor en pesos + IVA: ${cot ? v(formatSolicitudPesos(cot.neto)) : ''}</td></tr>
     <tr><td colspan="2">Valor U.T.M. ${cot ? v(cot.periodoLabel) + ': ' + v(formatSolicitudPesos(cot.utmValor).replace('$ ', '$')) : ''}</td><td colspan="2">I.V.A (19 %) : ${cot ? v(formatSolicitudPesos(cot.iva)) : ''}</td></tr>
     <tr><td colspan="2">Valor total: (IVA INCL.)</td><td colspan="2" class="right">${cot ? v(formatSolicitudPesos(cot.total)) : ''}</td></tr>
+    ${filasDescuento}
     ${texts.notaCotizacion ? `<tr><td colspan="4">${v(texts.notaCotizacion)}</td></tr>` : ''}
     ${section('SOLICITUD')}
     <tr><td colspan="4" class="clausulas">${clausulas}</td></tr>
@@ -4853,9 +4993,19 @@ function buildDateRangeExportRows(registros) {
         normalizeText(registro?.region),
         normalizeText(registro?.comuna),
         normalizeText(registro?.sucursal),
-        formatEstadoForExport(registro?.estado),
+        ...(canSeeEstadoFactura(currentUser) ? [formatEstadoForExport(registro?.estado)] : []),
         getDocumentOptionLabelByValue(registro?.estadoCarpeta) || normalizeText(registro?.estadoCarpeta) || 'Sin estado'
     ]);
+}
+
+// ESTADO FACTURA solo sale para quien el servidor se lo entrega.
+function getDateRangeExportColumns() {
+    return [
+        ['#', 6], ['NRO INGRESO', 18], ['FECHA INGRESO', 20], ['NRO DE LOTES', 14], ['NOMBRE', 40], ['RUT', 16], ['ROL', 16],
+        ['TELEFONO', 15], ['CORREO', 35], ['REGION', 20], ['COMUNA', 20], ['SUCURSAL', 20],
+        ...(canSeeEstadoFactura(currentUser) ? [['ESTADO FACTURA', 18]] : []),
+        ['ESTADO CARPETA', 32]
+    ];
 }
 
 function buildDateRangeExportFileName(extension = 'xlsx') {
@@ -4907,9 +5057,10 @@ async function exportDateRangeWorkbookAsXlsxTable(registros) {
         throw new Error('No se pudo cargar la libreria de tabla Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'FECHA INGRESO', 'NRO DE LOTES', 'NOMBRE', 'RUT', 'ROL', 'TELEFONO', 'CORREO', 'REGION', 'COMUNA', 'SUCURSAL', 'ESTADO FACTURA', 'ESTADO CARPETA'];
+    const columns = getDateRangeExportColumns();
+    const headers = columns.map(([header]) => header);
     const rows = buildDateRangeExportRows(registros).map((rowValues) => rowValues.map((value) => String(value ?? '')));
-    const columnWidths = [6, 18, 20, 14, 40, 16, 16, 15, 35, 20, 20, 20, 18, 32];
+    const columnWidths = columns.map(([, width]) => width);
 
     const workbook = new excelJsLib.Workbook();
     workbook.creator = APP_NAME;
@@ -4959,27 +5110,13 @@ function exportDateRangeWorkbookAsXls(registros) {
         throw new Error('No se pudo cargar la libreria de exportacion Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'FECHA INGRESO', 'NRO DE LOTES', 'NOMBRE', 'RUT', 'ROL', 'TELEFONO', 'CORREO', 'REGION', 'COMUNA', 'SUCURSAL', 'ESTADO FACTURA', 'ESTADO CARPETA'];
+    const columns = getDateRangeExportColumns();
+    const headers = columns.map(([header]) => header);
     const rows = buildDateRangeExportRows(registros);
     const worksheetData = [headers, ...rows];
     const worksheet = xlsxLib.utils.aoa_to_sheet(worksheetData);
 
-    worksheet['!cols'] = [
-        { wch: 6 },
-        { wch: 18 },
-        { wch: 20 },
-        { wch: 14 },
-        { wch: 40 },
-        { wch: 16 },
-        { wch: 16 },
-        { wch: 15 },
-        { wch: 35 },
-        { wch: 20 },
-        { wch: 20 },
-        { wch: 20 },
-        { wch: 18 },
-        { wch: 32 }
-    ];
+    worksheet['!cols'] = columns.map(([, wch]) => ({ wch }));
 
     const lastCol = xlsxLib.utils.encode_col(headers.length - 1);
     const lastRow = rows.length + 1;
@@ -5048,10 +5185,24 @@ function getSecretaryNoMovementStorageKey(user) {
     return `${SECRETARY_DAILY_ALERT_STORAGE_PREFIX}${username}`;
 }
 
+// El operador ve la alerta en cada inicio de sesion (la marca dura lo que la pestana y se borra al entrar);
+// los demas roles, una vez al dia.
+function getNoMovementAlertStorage(user) {
+    return isOperatorUser(user) ? window.sessionStorage : window.localStorage;
+}
+
+function clearNoMovementLoginMark(user) {
+    try {
+        window.sessionStorage.removeItem(getSecretaryNoMovementStorageKey(user));
+    } catch (error) {
+        // Sin accion: no bloquear el flujo por storage.
+    }
+}
+
 function getSecretaryNoMovementSeenDate(user) {
     const storageKey = getSecretaryNoMovementStorageKey(user);
     try {
-        return String(window.localStorage.getItem(storageKey) || '').trim();
+        return String(getNoMovementAlertStorage(user).getItem(storageKey) || '').trim();
     } catch (error) {
         return '';
     }
@@ -5061,7 +5212,7 @@ function markSecretaryNoMovementSeenToday(user) {
     const storageKey = getSecretaryNoMovementStorageKey(user);
     const todayKey = toLocalDateInputValue(new Date());
     try {
-        window.localStorage.setItem(storageKey, todayKey);
+        getNoMovementAlertStorage(user).setItem(storageKey, todayKey);
     } catch (error) {
         // Sin accion: no bloquear el flujo por storage.
     }
@@ -5282,15 +5433,16 @@ async function maybeShowSecretaryNoMovementAlert(user) {
         return;
     }
 
-    const todayKey = toLocalDateInputValue(new Date());
-    if (getSecretaryNoMovementSeenDate(user) === todayKey) {
+    // Operador: cualquier marca significa que ya la vio en este inicio de sesion, aunque la recarga sea al dia siguiente.
+    const seenDate = getSecretaryNoMovementSeenDate(user);
+    if (isOperatorUser(user) ? seenDate : seenDate === toLocalDateInputValue(new Date())) {
         return;
     }
 
     try {
         await fetchSecretaryNoMovementRecords();
         markSecretaryNoMovementSeenToday(user);
-        if (!secretaryNoMovementRecords.length) {
+        if (!secretaryNoMovementRecords.length && !isOperatorUser(user)) {
             return;
         }
         openSecretaryNoMovementModal();
@@ -5483,7 +5635,7 @@ function renderOperatorDocumentAlertsRows(records) {
     updateOperatorDocumentAlertsExportButtonState(rows);
     ui.operatorDocAlertsBody.innerHTML = '';
     if (rows.length === 0) {
-        ui.operatorDocAlertsBody.innerHTML = '<tr><td colspan="11">Sin carpetas para mostrar.</td></tr>';
+        ui.operatorDocAlertsBody.innerHTML = '<tr><td colspan="10">Sin carpetas para mostrar.</td></tr>';
         return;
     }
 
@@ -5498,7 +5650,6 @@ function renderOperatorDocumentAlertsRows(records) {
             <td>${escapeHtml(item?.rut || '')}</td>
             <td>${escapeHtml(item?.sucursal || '')}</td>
             <td>${escapeHtml([item?.region, item?.comuna].filter(Boolean).join(' / '))}</td>
-            <td>${escapeHtml(formatEstadoForExport(item?.estado))}</td>
             <td>${escapeHtml(getDocumentOptionLabelByValue(item?.estadoCarpeta) || item?.estadoCarpeta || 'Sin estado')}</td>
             <td></td>
         `;
@@ -5561,7 +5712,6 @@ function buildOperatorDocumentAlertsExportRows(records) {
         normalizeText(item?.sucursal),
         normalizeText(item?.region),
         normalizeText(item?.comuna),
-        formatEstadoForExport(item?.estado),
         getDocumentOptionLabelByValue(item?.estadoCarpeta) || normalizeText(item?.estadoCarpeta) || 'Sin estado'
     ]);
 }
@@ -5582,9 +5732,9 @@ async function exportOperatorDocumentAlertsAsXlsxTable(records) {
         throw new Error('No se pudo cargar la libreria de tabla Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA INGRESO', 'NRO DE LOTES', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO FACTURA', 'ESTADO CARPETA'];
+    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA INGRESO', 'NRO DE LOTES', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO CARPETA'];
     const rows = buildOperatorDocumentAlertsExportRows(records).map((rowValues) => rowValues.map((value) => String(value ?? '')));
-    const columnWidths = [6, 18, 22, 22, 14, 40, 16, 22, 22, 22, 18, 32];
+    const columnWidths = [6, 18, 22, 22, 14, 40, 16, 22, 22, 22, 32];
 
     const workbook = new excelJsLib.Workbook();
     workbook.creator = APP_NAME;
@@ -5634,7 +5784,7 @@ function exportOperatorDocumentAlertsAsXls(records) {
         throw new Error('No se pudo cargar la libreria de exportacion Excel.');
     }
 
-    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA INGRESO', 'NRO DE LOTES', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO FACTURA', 'ESTADO CARPETA'];
+    const headers = ['#', 'NRO INGRESO', 'ULT. MOVIMIENTO', 'FECHA INGRESO', 'NRO DE LOTES', 'CLIENTE', 'RUT', 'SUCURSAL', 'REGION', 'COMUNA', 'ESTADO CARPETA'];
     const rows = buildOperatorDocumentAlertsExportRows(records);
     const worksheetData = [headers, ...rows];
     const worksheet = xlsxLib.utils.aoa_to_sheet(worksheetData);
@@ -5650,7 +5800,6 @@ function exportOperatorDocumentAlertsAsXls(records) {
         { wch: 22 },
         { wch: 22 },
         { wch: 22 },
-        { wch: 18 },
         { wch: 32 }
     ];
 
@@ -6356,6 +6505,8 @@ function registerInvoiceAutofillBindings() {
 }
 
 function resetFacturaForm() {
+    // Un calculo en camino no debe pisar el monto del registro que se esta cargando.
+    cancelFacturaMontoCalculo();
     // Al limpiar el formulario tambien se vacian los datos de la solicitud de ingreso.
     resetSolicitudForm();
     if (!ui) {
@@ -7135,6 +7286,12 @@ async function handleSendCurrentInvoiceToAccountant() {
         return;
     }
 
+    // Un correo no se puede retirar: no sale con un monto que no corresponde a los lotes y descuento actuales.
+    await facturaMontoCalculoEnCurso;
+    if (blockSaveOnFacturaMontoError(ui.facturaFormMessage)) {
+        return;
+    }
+
     clearFacturaFieldErrors();
     const parsed = validateInvoiceDraft(collectFacturaFormData(), { requireAmount: true });
     if (parsed.error) {
@@ -7225,6 +7382,11 @@ async function handleAddCurrentInvoiceToPending() {
         setFormMessage(ui.facturaFormMessage, 'Esta factura ya fue enviada al contador y no puede agregarse a pendientes.', 'error');
         setFormMessage(ui.operatorInvoiceMessage, 'La factura ya fue enviada al contador.', 'error');
         applyInvoiceSendButtonsState();
+        return;
+    }
+
+    await facturaMontoCalculoEnCurso;
+    if (blockSaveOnFacturaMontoError(ui.facturaFormMessage)) {
         return;
     }
 
@@ -10185,6 +10347,18 @@ async function handleGuardar() {
         return;
     }
 
+    const descuentoError = getDescuentoInputError();
+    if (descuentoError) {
+        setFormMessage(ui.formMessage, descuentoError, 'error');
+        document.getElementById('solicitudDescuento')?.focus();
+        return;
+    }
+
+    // Si lotes o descuento acaban de cambiar, se espera el monto recalculado antes de leer el formulario.
+    await facturaMontoCalculoEnCurso;
+    if (blockSaveOnFacturaMontoError()) {
+        return;
+    }
     const data = collectFormData(ui.registroForm);
     if (!data.comentario) {
         data.comentario = DEFAULT_CREATION_COMMENT;
@@ -10258,6 +10432,18 @@ async function handleModificar() {
         return;
     }
 
+    const descuentoError = getDescuentoInputError();
+    if (descuentoError) {
+        setFormMessage(ui.formMessage, descuentoError, 'error');
+        document.getElementById('solicitudDescuento')?.focus();
+        return;
+    }
+
+    // Si lotes o descuento acaban de cambiar, se espera el monto recalculado antes de leer el formulario.
+    await facturaMontoCalculoEnCurso;
+    if (blockSaveOnFacturaMontoError()) {
+        return;
+    }
     const isOperatorRestricted = isOperatorUser(currentUser) && !isGuestUser(currentUser);
     const data = collectFormData(ui.registroForm);
     const routeIngreso = loadedIngresoOriginal || data.numIngreso;
@@ -10777,7 +10963,8 @@ function collectFormData(form) {
         nombrePredio: document.getElementById('nombrePredio').value.trim(),
         rol: document.getElementById('rol').value.trim(),
         numLotes: document.getElementById('numLotes').value,
-        estado: document.getElementById('estado').value,
+        // Solo secretaria, admin y super cambian ESTADO FACTURA; los demas roles no lo envian.
+        ...(canUseSolicitudData(currentUser) ? { estado: document.getElementById('estado').value } : {}),
         estadoCarpeta,
         comentario: comentarioFinal,
         documentos,
