@@ -433,6 +433,8 @@ let editingHistoryEntryId = null;
 let editingHistoryIngreso = '';
 let editingHistoryAction = '';
 let secretaryNoMovementRecords = [];
+// Lo que muestra la ventana: filtros aplicados y carpetas resultantes (se imprime tal cual).
+let secretaryNoMovementShown = { filters: {}, records: [] };
 let dateRangeMatches = [];
 let selectedDateRangeIngreso = '';
 let dateRangeCurrentPage = 1;
@@ -743,6 +745,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         secretaryNoMovementBody: document.getElementById('secretaryNoMovementBody'),
         secretaryNoMovementMessage: document.getElementById('secretaryNoMovementMessage'),
         secretaryNoMovementCloseBtn: document.getElementById('secretaryNoMovementCloseBtn'),
+        secretaryNoMovementTotal: document.getElementById('secretaryNoMovementTotal'),
+        secretaryNoMovementPrintBtn: document.getElementById('secretaryNoMovementPrintBtn'),
+        secretaryNoMovementEnPlazoBtn: document.getElementById('secretaryNoMovementEnPlazoBtn'),
         operatorDocAlertsOverlay: document.getElementById('operatorDocAlertsOverlay'),
         operatorDocAlertsFilterForm: document.getElementById('operatorDocAlertsFilterForm'),
         operatorDocAlertsRegion: document.getElementById('operatorDocAlertsRegion'),
@@ -1128,6 +1133,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (ui.secretaryNoMovementCloseBtn) {
         ui.secretaryNoMovementCloseBtn.addEventListener('click', closeSecretaryNoMovementModal);
+    }
+    if (ui.secretaryNoMovementPrintBtn) {
+        ui.secretaryNoMovementPrintBtn.addEventListener('click', handlePrintSecretaryNoMovement);
+    }
+    if (ui.secretaryNoMovementEnPlazoBtn) {
+        ui.secretaryNoMovementEnPlazoBtn.addEventListener('click', () => void handlePrintSecretaryEnPlazo());
     }
     if (ui.secretaryNoMovementOverlay) {
         ui.secretaryNoMovementOverlay.addEventListener('click', (event) => {
@@ -2303,6 +2314,12 @@ function canUseSecretaryFeatures(user) {
 // Boton "Sin movimiento" (mismo permiso que en el servidor).
 function canUseNoMovementFollowup(user) {
     return !isGuestUser(user) && (canUseSecretaryFeatures(user) || isAdminUser(user) || isOperatorUser(user) || isSupervisorUser(user));
+}
+
+// Botones IMPRIMIR y CARPETAS EN PLAZO del seguimiento: solo supervisor, super y secretaria
+// (ADMIN y OPERADOR ven la ventana sin ellos). Rige el rol activo, tambien en «VER COMO».
+function canPrintNoMovementReport(user) {
+    return !isGuestUser(user) && (isSupervisorUser(user) || isSuperUser(user) || isSecretaryUser(user));
 }
 
 // Alerta diaria al entrar: roles que hacen el seguimiento de las carpetas.
@@ -5292,22 +5309,128 @@ function renderSecretaryNoMovementRows(records) {
     }
 
     records.forEach((item) => {
-        const days = Number(item?.diasSinMovimiento);
-        const daysLabel = Number.isFinite(days) ? String(Math.max(0, Math.floor(days))) : '';
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${escapeHtml(item?.numIngreso || '')}</td>
-            <td>${escapeHtml(formatDateTime(item?.createdAt || ''))}</td>
-            <td>${escapeHtml(daysLabel)}</td>
-            <td>${escapeHtml(item?.motivo || 'INGRESO')}</td>
-            <td>${escapeHtml(item?.nombre || '')}</td>
-            <td>${escapeHtml(item?.rut || '')}</td>
-            <td>${escapeHtml(item?.sucursal || '')}</td>
-            <td>${escapeHtml(item?.region || '')}</td>
-            <td>${escapeHtml(item?.comuna || '')}</td>
-        `;
+        row.innerHTML = getSecretaryNoMovementCells(item).map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
         ui.secretaryNoMovementBody.appendChild(row);
     });
+}
+
+// Columnas de la ventana y de la hoja impresa, en el mismo orden.
+function getSecretaryNoMovementCells(item) {
+    const days = Number(item?.diasSinMovimiento);
+    const daysLabel = Number.isFinite(days) ? String(Math.max(0, Math.floor(days))) : '';
+    return [
+        item?.numIngreso || '',
+        formatDateTime(item?.createdAt || ''),
+        daysLabel,
+        item?.motivo || 'INGRESO',
+        item?.nombre || '',
+        item?.rut || '',
+        item?.sucursal || '',
+        item?.region || '',
+        item?.comuna || ''
+    ];
+}
+
+function updateSecretaryNoMovementSummary() {
+    const count = secretaryNoMovementShown.records.length;
+    if (ui?.secretaryNoMovementTotal) {
+        ui.secretaryNoMovementTotal.textContent = `Total: ${count} ${count === 1 ? 'carpeta' : 'carpetas'}`;
+    }
+    const canPrint = canPrintNoMovementReport(currentUser);
+    if (ui?.secretaryNoMovementPrintBtn) {
+        ui.secretaryNoMovementPrintBtn.classList.toggle('hidden', !canPrint);
+        ui.secretaryNoMovementPrintBtn.disabled = count === 0;
+        ui.secretaryNoMovementPrintBtn.title = count === 0 ? 'No hay carpetas para imprimir.' : '';
+    }
+    if (ui?.secretaryNoMovementEnPlazoBtn) {
+        ui.secretaryNoMovementEnPlazoBtn.classList.toggle('hidden', !canPrint);
+    }
+}
+
+// Mismos filtros para el listado de la ventana y el de carpetas en plazo.
+function filterSecretaryNoMovementRecords(records, filters) {
+    const { region, comuna, sucursal, desde, hasta } = filters || {};
+    return (Array.isArray(records) ? records : []).filter((item) => {
+        const itemDate = getSecretaryNoMovementRecordDateKey(item?.createdAt);
+        if (region && normalizeInvoiceText(item?.region, 120) !== region) {
+            return false;
+        }
+        if (comuna && normalizeInvoiceText(item?.comuna, 120) !== comuna) {
+            return false;
+        }
+        if (sucursal && normalizeInvoiceText(item?.sucursal, 120) !== sucursal) {
+            return false;
+        }
+        if (desde && (!itemDate || itemDate < desde)) {
+            return false;
+        }
+        if (hasta && (!itemDate || itemDate > hasta)) {
+            return false;
+        }
+        return true;
+    });
+}
+
+function buildSecretaryNoMovementPrintHtml(title, filters, records) {
+    const printedAt = new Date().toLocaleString('es-CL', {
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const rows = records.map((item) => ({ motivo: item?.motivo || 'INGRESO', cells: getSecretaryNoMovementCells(item) }));
+    return window.SiaSinMovimientoImpresion.buildPrintHtml({ title, printedAt, filters, rows }, escapeHtml);
+}
+
+function handlePrintSecretaryNoMovement() {
+    if (!canPrintNoMovementReport(currentUser)) {
+        setFormMessage(ui.secretaryNoMovementMessage, 'Solo supervisor, secretaria o super pueden imprimir este seguimiento.', 'error');
+        return;
+    }
+    const { filters, records } = secretaryNoMovementShown;
+    if (!records.length) {
+        setFormMessage(ui.secretaryNoMovementMessage, 'No hay carpetas para imprimir con los filtros actuales.', 'error');
+        return;
+    }
+    openSolicitudPrintFrame(buildSecretaryNoMovementPrintHtml('SEGUIMIENTO DE REGISTROS SIN MOVIMIENTO', filters, records));
+}
+
+// Pide al servidor las carpetas en plazo (no se muestran en la ventana) y las imprime con los filtros aplicados.
+async function handlePrintSecretaryEnPlazo() {
+    if (!canPrintNoMovementReport(currentUser)) {
+        setFormMessage(ui.secretaryNoMovementMessage, 'Solo supervisor, secretaria o super pueden imprimir las carpetas en plazo.', 'error');
+        return;
+    }
+    const button = ui.secretaryNoMovementEnPlazoBtn;
+    if (button) {
+        button.disabled = true;
+    }
+    try {
+        const query = new URLSearchParams({ dias: String(SECRETARY_NO_MOVEMENT_DAYS), alcance: 'en-plazo' });
+        const result = await apiRequest(`/registros/seguimiento-sin-movimiento?${query.toString()}`);
+        const threshold = Number(result?.thresholdDays);
+        if (!Array.isArray(result?.registros) || !Number.isFinite(threshold)) {
+            throw new Error('La respuesta del servidor no trae el listado de carpetas en plazo.');
+        }
+        if (result.registros.some((item) => !(Number(item?.diasSinMovimiento) < threshold))) {
+            throw new Error('El servidor no devolvio solo carpetas en plazo. No se imprimio la hoja.');
+        }
+        const { filters } = secretaryNoMovementShown;
+        const records = filterSecretaryNoMovementRecords(result.registros, filters);
+        if (!records.length) {
+            setFormMessage(ui.secretaryNoMovementMessage, 'No hay carpetas en plazo con los filtros actuales. No se imprimio la hoja.', 'error');
+            return;
+        }
+        openSolicitudPrintFrame(buildSecretaryNoMovementPrintHtml(
+            `CARPETAS EN PLAZO (MENOS DE ${SECRETARY_NO_MOVEMENT_DAYS} DÍAS SIN MOVIMIENTO)`,
+            filters,
+            records
+        ));
+    } catch (error) {
+        setFormMessage(ui.secretaryNoMovementMessage, error.message || 'No fue posible cargar las carpetas en plazo.', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+    }
 }
 
 function applySecretaryNoMovementFilters() {
@@ -5335,32 +5458,12 @@ function applySecretaryNoMovementFilters() {
         return false;
     }
 
-    const filteredRecords = sourceRecords.filter((item) => {
-        const itemRegion = normalizeInvoiceText(item?.region, 120);
-        const itemComuna = normalizeInvoiceText(item?.comuna, 120);
-        const itemSucursal = normalizeInvoiceText(item?.sucursal, 120);
-        const itemDate = getSecretaryNoMovementRecordDateKey(item?.createdAt);
-
-        if (region && itemRegion !== region) {
-            return false;
-        }
-        if (comuna && itemComuna !== comuna) {
-            return false;
-        }
-        if (sucursal && itemSucursal !== sucursal) {
-            return false;
-        }
-        if (fechaDesde && (!itemDate || itemDate < fechaDesde)) {
-            return false;
-        }
-        if (fechaHasta && (!itemDate || itemDate > fechaHasta)) {
-            return false;
-        }
-
-        return true;
-    });
+    const filters = { region, comuna, sucursal, desde: fechaDesde, hasta: fechaHasta };
+    const filteredRecords = filterSecretaryNoMovementRecords(sourceRecords, filters);
 
     renderSecretaryNoMovementRows(filteredRecords);
+    secretaryNoMovementShown = { filters, records: filteredRecords };
+    updateSecretaryNoMovementSummary();
     if (sourceRecords.length === 0) {
         setFormMessage(ui.secretaryNoMovementMessage, `No hay carpetas con ${SECRETARY_NO_MOVEMENT_DAYS} o mas dias sin movimiento.`, 'success');
         return true;

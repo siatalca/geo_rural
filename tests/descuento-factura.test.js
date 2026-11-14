@@ -458,6 +458,109 @@ test('la migracion del descuento agrega la columna una vez y no toca los datos',
     assert.deepEqual({ ...f.db.prepare('SELECT * FROM registro_solicitud').get() }, { registro_id: 1, profesional_titulo: 'Ingeniero', descuento_porcentaje: null });
 });
 
+test('seguimiento sin movimiento: devuelve todas las carpetas que cumplen la regla, sin tope fijo', async (t) => {
+    const f = await fixture(t);
+    const hace = (dias) => `datetime('now', '-${dias} days')`;
+    // 600 carpetas con solo el ingreso hace 20 dias (ids 101..700) y casos de la regla (ids 2..5).
+    f.db.exec(`WITH RECURSIVE seq(n) AS (SELECT 101 UNION ALL SELECT n + 1 FROM seq WHERE n < 700)
+            INSERT INTO registros (id, num_ingreso, nombre, documentos, created_by_sucursal) SELECT n, n || '-2026', 'Masivo', '[]', 'Casa Matriz' FROM seq;
+        INSERT INTO registro_historial (registro_id, num_ingreso, accion, comentario, usuario_nombre, created_at)
+            SELECT id, num_ingreso, 'CREACION', 'creacion y recepcion', 'ana', ${hace(20)} FROM registros WHERE id >= 101;
+        INSERT INTO registros (id, num_ingreso, nombre, documentos, created_by_sucursal) VALUES
+            (2, '2-2026', 'Retirada', '[]', 'Casa Matriz'), (3, '3-2026', 'Reingresada', '[]', 'Casa Matriz'),
+            (4, '4-2026', 'Reingreso reciente', '[]', 'Casa Matriz'), (5, '5-2026', 'Ingreso reciente', '[]', 'Casa Matriz');
+        INSERT INTO registro_historial (registro_id, num_ingreso, accion, comentario, usuario_nombre, created_at) VALUES
+            (2, '2-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace(40)}),
+            (2, '2-2026', 'COMENTARIO', 'Retira Carpeta Para Subsanar Observaciones', 'ana', ${hace(30)}),
+            (3, '3-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace(60)}),
+            (3, '3-2026', 'COMENTARIO', 'Retira Carpeta Para Subsanar Observaciones', 'ana', ${hace(50)}),
+            (3, '3-2026', 'COMENTARIO', 'Reingreso de carpeta subsanada', 'ana', ${hace(25)}),
+            (4, '4-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace(60)}),
+            (4, '4-2026', 'COMENTARIO', 'Reingreso de carpeta subsanada', 'ana', ${hace(5)}),
+            (5, '5-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace(10)});`);
+
+    const res = await f.call('GET', '/api/registros/seguimiento-sin-movimiento', await f.loginAs('ADMIN'));
+    assert.equal(res.status, 200);
+    assert.deepEqual(Object.keys(res.json), ['thresholdDays', 'registros']);
+    assert.equal(res.json.thresholdDays, 15);
+    assert.equal(res.json.registros.length, 601);
+
+    const numeros = res.json.registros.map((item) => item.numIngreso);
+    for (const excluido of ['2-2026', '4-2026', '5-2026', NUM]) assert.equal(numeros.includes(excluido), false, excluido);
+    // El reingreso subsanado cuenta desde su fecha (25 dias), no desde el ingreso, y va primero por ser el mas antiguo.
+    const reingreso = res.json.registros[0];
+    assert.equal(reingreso.numIngreso, '3-2026');
+    assert.equal(reingreso.motivo, 'REINGRESO SUBSANADA');
+    assert.equal(reingreso.diasSinMovimiento, 25);
+    assert.equal(reingreso.totalMovimientos, 3);
+    assert.ok(res.json.registros.slice(1).every((item) => item.motivo === 'INGRESO' && item.diasSinMovimiento === 20));
+});
+
+test('seguimiento en plazo: es el complemento exacto del listado sin movimiento', async (t) => {
+    const f = await fixture(t);
+    const hace = (modificador) => `datetime('now', '${modificador}')`;
+    // Ingreso unico a varias edades, incluido el borde de 15 dias (un minuto antes, justo y un minuto despues).
+    const ingresos = [['21', '-1 days'], ['22', '-14 days'], ['23', '-15 days', '+1 minutes'], ['24', '-15 days'],
+        ['25', '-15 days', '-1 minutes'], ['26', '-40 days']];
+    f.db.exec(ingresos.map(([id, ...edad], index) => `
+        INSERT INTO registros (id, num_ingreso, nombre, documentos, created_by_sucursal) VALUES (${id}, '${id}-2026', 'Ingreso ${index}', '[]', 'Casa Matriz');
+        INSERT INTO registro_historial (registro_id, num_ingreso, accion, comentario, usuario_nombre, created_at)
+            VALUES (${id}, '${id}-2026', 'CREACION', 'texto libre ${index}', 'ana', datetime('now', ${edad.map((m) => `'${m}'`).join(', ')}));`).join('\n'));
+    f.db.exec(`INSERT INTO registros (id, num_ingreso, nombre, documentos, created_by_sucursal) VALUES
+            (31, '31-2026', 'Reingreso reciente', '[]', 'Casa Matriz'), (32, '32-2026', 'Reingreso borde', '[]', 'Casa Matriz'),
+            (33, '33-2026', 'Reingreso antiguo', '[]', 'Casa Matriz'), (34, '34-2026', 'Retirada', '[]', 'Casa Matriz'),
+            (35, '35-2026', 'Con otro movimiento', '[]', 'Casa Matriz');
+        INSERT INTO registro_historial (registro_id, num_ingreso, accion, comentario, usuario_nombre, created_at) VALUES
+            (31, '31-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace('-90 days')}),
+            (31, '31-2026', 'COMENTARIO', 'Retira Carpeta Para Subsanar Observaciones', 'ana', ${hace('-60 days')}),
+            (31, '31-2026', 'COMENTARIO', 'Reingreso de carpeta subsanada', 'ana', ${hace('-3 days')}),
+            (32, '32-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace('-90 days')}),
+            (32, '32-2026', 'COMENTARIO', 'Reingreso de carpeta subsanada', 'ana', datetime('now', '-15 days', '+1 minutes')),
+            (33, '33-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace('-90 days')}),
+            (33, '33-2026', 'COMENTARIO', 'Reingreso de carpeta subsanada', 'ana', ${hace('-20 days')}),
+            (34, '34-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace('-3 days')}),
+            (34, '34-2026', 'COMENTARIO', 'Retira Carpeta Para Subsanar Observaciones', 'ana', ${hace('-2 days')}),
+            (35, '35-2026', 'CREACION', 'creacion y recepcion', 'ana', ${hace('-30 days')}),
+            (35, '35-2026', 'COMENTARIO', 'Carpeta subsanada parcialmente', 'ana', ${hace('-1 days')});`);
+
+    const token = await f.loginAs('ADMIN');
+    const sin = await f.call('GET', '/api/registros/seguimiento-sin-movimiento', token);
+    const en = await f.call('GET', '/api/registros/seguimiento-sin-movimiento?alcance=en-plazo', token);
+    const otro = await f.call('GET', '/api/registros/seguimiento-sin-movimiento?alcance=otra-cosa', token);
+    assert.equal(en.status, 200);
+    assert.deepEqual(Object.keys(en.json), ['thresholdDays', 'registros']);
+    assert.equal(en.json.thresholdDays, 15);
+    assert.deepEqual(otro.json, sin.json);
+
+    const numeros = (res) => res.json.registros.map((item) => item.numIngreso);
+    assert.deepEqual(numeros(sin), ['26-2026', '33-2026', '25-2026', '24-2026']);
+    assert.deepEqual([...numeros(en)].sort(), ['21-2026', '22-2026', '23-2026', '31-2026', '32-2026']);
+    assert.deepEqual(numeros(en).slice(3), ['31-2026', '21-2026']);
+    const union = [...numeros(sin), ...numeros(en)];
+    assert.equal(new Set(union).size, union.length);
+    assert.deepEqual([...union].sort(), ['21-2026', '22-2026', '23-2026', '24-2026', '25-2026', '26-2026', '31-2026',
+        '32-2026', '33-2026']);
+    // Retirada para subsanar, otro comentario posterior o (NUM) varios movimientos: en ninguno de los dos.
+    for (const excluido of ['34-2026', '35-2026', NUM]) assert.equal(union.includes(excluido), false, excluido);
+
+    // Mismo orden (mas dias primero) y mismo formato; el reingreso cuenta desde su fecha, no desde el ingreso.
+    const porNumero = Object.fromEntries(en.json.registros.map((item) => [item.numIngreso, item]));
+    assert.deepEqual(Object.keys(porNumero['31-2026']), Object.keys(sin.json.registros[0]));
+    assert.equal(porNumero['31-2026'].motivo, 'REINGRESO SUBSANADA');
+    assert.equal(porNumero['31-2026'].diasSinMovimiento, 3);
+    assert.equal(porNumero['32-2026'].diasSinMovimiento, 14);
+    assert.equal(porNumero['21-2026'].motivo, 'INGRESO');
+    const dias = en.json.registros.map((item) => item.diasSinMovimiento);
+    assert.deepEqual(dias, [...dias].sort((a, b) => b - a));
+
+    // El umbral (dias) se respeta igual en los dos listados.
+    const sin5 = await f.call('GET', '/api/registros/seguimiento-sin-movimiento?dias=5', token);
+    const en5 = await f.call('GET', '/api/registros/seguimiento-sin-movimiento?dias=5&alcance=en-plazo', token);
+    assert.equal(en5.json.thresholdDays, 5);
+    assert.deepEqual([...numeros(sin5), ...numeros(en5)].sort(), [...union].sort());
+    assert.deepEqual(numeros(en5), ['31-2026', '21-2026']);
+});
+
 test('el historial se censura tambien en su forma resumida', async (t) => {
     const f = await fixture(t);
     const censurar = f.context.redactFacturaHistoryComment;

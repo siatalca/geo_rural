@@ -20,6 +20,7 @@ const COMMON_FILES = [
     'assets/js/site-brand.js',
     'assets/js/button-help.js',
     'assets/js/rol-paneles.js',
+    'assets/js/sin-movimiento-impresion.js',
     'assets/js/pages/seguimiento.js',
     'assets/js/pages/mantenimiento.js',
     'assets/css/brand.css',
@@ -30,6 +31,7 @@ const COMMON_FILES = [
     'tests/server.test.js',
     'tests/facturas-roles.test.js',
     'tests/descuento-factura.test.js',
+    'tests/sin-movimiento-impresion.test.js',
     'tools/sincronizar-comun.js',
     'docs/CODIGO_COMUN.md'
 ];

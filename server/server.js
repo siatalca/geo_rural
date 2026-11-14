@@ -9430,11 +9430,15 @@ app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
 
         const requestedDays = parsePositiveInt(req.query.dias, SECRETARIA_NO_MOVIMIENTO_DAYS);
         const thresholdDays = Math.max(1, Math.min(requestedDays, 365));
+        // alcance=en-plazo lista el complemento: las mismas carpetas que aun no cumplen el plazo.
+        const enPlazo = req.query.alcance === 'en-plazo';
 
         // El plazo corre desde el ultimo movimiento cuando este es el ingreso (unico comentario)
         // o un "reingreso de carpeta subsanada"; cualquier movimiento posterior lo detiene.
         const where = [
-            'hstats.ultimo_movimiento_at <= DATE_SUB(NOW(), INTERVAL ? DAY)',
+            enPlazo
+                ? 'hstats.ultimo_movimiento_at > DATE_SUB(NOW(), INTERVAL ? DAY)'
+                : 'hstats.ultimo_movimiento_at <= DATE_SUB(NOW(), INTERVAL ? DAY)',
             "(hstats.total_movimientos = 1 OR LOWER(ultimo.comentario) LIKE '%subsanad%')"
         ];
         const values = [thresholdDays];
@@ -9477,7 +9481,6 @@ app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
                     )
                 WHERE ${where.join(' AND ')}
                 ORDER BY dias_sin_movimiento DESC, hstats.ultimo_movimiento_at ASC, r.id ASC
-                LIMIT 500
             `,
             values
         );

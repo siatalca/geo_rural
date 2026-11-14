@@ -1294,6 +1294,31 @@ button {
     flex: 1;
 }
 
+.secretary-no-movement-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 4px 0 8px;
+}
+
+.secretary-no-movement-total {
+    margin: 0;
+    font-weight: 700;
+}
+
+.secretary-no-movement-print-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.secretary-no-movement-print-actions button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .operator-doc-alerts-modal-card {
     width: min(1120px, 100%);
 }
