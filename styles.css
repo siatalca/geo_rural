@@ -1422,6 +1422,13 @@ button {
     font-size: 0.86em;
 }
 
+.reporte-facturacion-titulo {
+    margin: 0;
+    font-weight: 700;
+    color: var(--brand-dark);
+    font-size: 0.9em;
+}
+
 .reporte-table-wrapper {
     max-height: 48vh;
     overflow: auto;

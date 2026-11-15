@@ -27,14 +27,24 @@ function row(extra = {}) {
     return {
         numIngreso: '45-2026', fechaIngreso: '2026-03-02T13:00:00.000Z', fechaEvento: '2026-04-10T13:00:00.000Z',
         nombre: 'Ana <b>Pérez</b>', rut: '1-9', region: 'Maule', comuna: 'Talca', sucursal: 'Casa Matriz',
-        numLotes: 3, estadoCarpeta: 'Certificada', detalle: '39 días', ...extra
+        numLotes: 3, estadoCarpeta: 'Certificada', facturacion: 'FACTURADA', facturaNumero: '1234', facturaMonto: 1500000,
+        detalle: '39 días', ...extra
     };
+}
+
+// Solo «ingresos» trae resumenFacturacion (las 3 etiquetas siempre, en el orden del servidor), con monto por clase.
+function billingSummary(registros) {
+    return reportes.BILLING_STATES.map((etiqueta) => {
+        const deLaClase = registros.filter((item) => item.facturacion === etiqueta);
+        return { etiqueta, cantidad: deLaClase.length, monto: deLaClase.reduce((sum, item) => sum + (item.facturaMonto || 0), 0) };
+    });
 }
 
 function payload(tipo, registros = [row()], extra = {}) {
     return {
         tipo, desde: '2026-01-01', hasta: '2026-11-15', filtros: { region: '', sucursal: '' }, total: registros.length,
-        resumen: [{ etiqueta: 'Maule', cantidad: registros.length }], registros, ...extra
+        resumen: [{ etiqueta: 'Maule', cantidad: registros.length }], registros,
+        ...(tipo === 'ingresos' ? { resumenFacturacion: billingSummary(registros) } : {}), ...extra
     };
 }
 
@@ -65,7 +75,11 @@ test('rango por defecto: 1 de enero del año actual hasta hoy (hora local)', () 
 
 test('columnas: FECHA EVENTO con nombre propio y sin repetir FECHA INGRESO en Ingresos', () => {
     const base = ['NOMBRE', 'RUT', 'REGIÓN', 'COMUNA', 'SEDE', 'LOTES', 'ESTADO CARPETA', 'DETALLE'];
-    assert.deepEqual(reportes.columnsFor('ingresos'), ['NRO INGRESO', 'FECHA INGRESO', ...base]);
+    assert.deepEqual(reportes.columnsFor('ingresos'), ['NRO INGRESO', 'FECHA INGRESO', ...base.slice(0, 7),
+        'FACTURACIÓN', 'NRO FACTURA', 'MONTO A FACTURAR', 'DETALLE']);
+    assert.deepEqual(reportes.rowCells(row({ facturacion: 'SIN SOLICITAR' }), 'ingresos').slice(8),
+        ['Certificada', 'SIN SOLICITAR', '1234', '$ 1.500.000', '39 días']);
+    assert.deepEqual(reportes.rowCells(row({ facturaNumero: '', facturaMonto: null }), 'ingresos').slice(10, 12), ['', '']);
     assert.deepEqual(reportes.columnsFor('certificadas'), ['NRO INGRESO', 'FECHA INGRESO', 'FECHA CERTIFICACIÓN', ...base]);
     assert.deepEqual(reportes.columnsFor('fuera-plazo'), ['NRO INGRESO', 'FECHA INGRESO', 'INICIO DEL PLAZO', ...base]);
     assert.deepEqual(reportes.columnsFor('hallazgos'), ['NRO INGRESO', 'FECHA INGRESO', 'FECHA HALLAZGO', ...base]);
@@ -137,8 +151,12 @@ test('sin filtros la hoja dice Todas; Ingresos no repite la fecha', () => {
 function fakeElement(id) {
     const classes = new Set(id === 'reporteOverlay' || id === 'reporteResultado' ? ['hidden'] : []);
     const listeners = {};
+    let html = '';
     return {
-        id, value: '', disabled: false, innerHTML: '', textContent: '', children: [], dataset: {},
+        id, value: '', disabled: false, textContent: '', children: [], dataset: {},
+        // Como en el DOM real, innerHTML = '' borra los hijos agregados con appendChild.
+        get innerHTML() { return html; },
+        set innerHTML(value) { html = value; this.children = []; },
         classList: {
             add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c),
             toggle: (c, on) => (on ? classes.add(c) : classes.delete(c))
@@ -150,17 +168,19 @@ function fakeElement(id) {
     };
 }
 
-function loadReportesUi() {
+function loadReportesUi(extraContext = {}) {
     const elements = {};
     const getElementById = (id) => (elements[id] = elements[id] || fakeElement(id));
     const pending = [];
+    const printed = [];
     const context = {
         window: { SiaReportes: reportes, requestAnimationFrame: () => {} },
         document: { getElementById, addEventListener() {}, createElement: () => fakeElement('') },
         apiRequest: (url) => new Promise((resolve) => pending.push({ url, resolve })),
         canUseReports: () => true, currentUser: { role: 'SUPER' },
         setFormMessage: (el, text) => { el.textContent = text; },
-        populateRegiones() {}, escapeHtml, openSolicitudPrintFrame() {}, URLSearchParams
+        populateRegiones() {}, escapeHtml, openSolicitudPrintFrame: (html) => printed.push(html), URLSearchParams,
+        ...extraContext
     };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../assets/js/reportes.js'), 'utf8'), context);
     const take = (pattern) => {
@@ -168,7 +188,7 @@ function loadReportesUi() {
         assert.ok(index >= 0, `petición ${pattern}`);
         return pending.splice(index, 1)[0];
     };
-    return { ui: context.window.SiaReportesUi, el: getElementById, take };
+    return { ui: context.window.SiaReportesUi, el: getElementById, take, printed };
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -211,4 +231,226 @@ test('la envoltura compartida no cambia la hoja de sin movimiento (M-026)', () =
     const html = impresion.buildPrintHtml({ title: 'T', printedAt: 'x', filters: {}, rows: [] }, escapeHtml);
     assert.match(html, /print-color-adjust: exact; \}\n<\/style>/);
     assert.doesNotMatch(html, /\.resumen/);
+});
+
+// --- M-028: DETALLE DE INGRESOS impreso por estado de carpeta y con facturación ---
+
+const CATALOGO = ['Observada', 'Certificada', 'En revisión', 'Rechazada'];
+
+// Sin segundo argumento usa CATALOGO; con él (aunque sea undefined) se pasa tal cual.
+function ingresosHtml(registros, ...rest) {
+    const estados = rest.length ? rest[0] : CATALOGO;
+    return reportes.buildPrintHtml({ tipo: 'ingresos', data: payload('ingresos', registros), printedAt: 'x', estados }, escapeHtml);
+}
+
+const titles = (html) => [...html.matchAll(/<h2>([^<]*)<\/h2>/g)].map((m) => m[1]);
+const subtotals = (html) => [...html.matchAll(/<p class="subtotal">([^<]*)<\/p>/g)].map((m) => m[1]);
+
+test('catálogo: etiquetas en el orden del selector (por grupo y dentro del grupo)', () => {
+    const groups = [{ id: 'g1' }, { id: 'g2' }];
+    const options = [{ label: 'B', groupId: 'g2' }, { label: 'A', groupId: 'g1' }, { label: 'C', groupId: 'g2' },
+        { label: ' ', groupId: 'g1' }, { label: 'Z', groupId: 'otro' }];
+    assert.deepEqual(reportes.catalogLabels(groups, options), ['A', 'B', 'C', 'Z']);
+    assert.deepEqual(reportes.catalogLabels(undefined, null), []);
+});
+
+test('ingresos impreso: Sin estado, Certificada y luego el catálogo en su orden, con subtotales y TOTAL GENERAL', () => {
+    const html = ingresosHtml([
+        row({ numIngreso: '1', estadoCarpeta: 'Rechazada' }),
+        row({ numIngreso: '2', estadoCarpeta: 'Certificada' }),
+        row({ numIngreso: '3', estadoCarpeta: 'Sin estado' }),
+        row({ numIngreso: '4', estadoCarpeta: 'OBSERVADA' }), // misma clave que «Observada»: no duplica grupo
+        row({ numIngreso: '5', estadoCarpeta: 'Certificada' }),
+        row({ numIngreso: '6', estadoCarpeta: 'en revision' }) // sin tilde ni mayúsculas: va a «En revisión»
+    ]);
+    assert.deepEqual(titles(html), ['Sin estado', 'Certificada', 'Observada', 'En revisión', 'Rechazada']);
+    assert.deepEqual(subtotals(html), ['Subtotal Sin estado: 1 carpeta', 'Subtotal Certificada: 2 carpetas',
+        'Subtotal Observada: 1 carpeta', 'Subtotal En revisión: 1 carpeta', 'Subtotal Rechazada: 1 carpeta']);
+    assert.match(html, /<p class="total-general">TOTAL GENERAL: 6 carpetas<\/p>/);
+    assert.ok(html.indexOf('TOTAL GENERAL') > html.lastIndexOf('class="subtotal"'));
+    assert.match(html, /<h1>DETALLE DE INGRESOS<\/h1>/);
+    assert.match(html, /Total: 6 carpetas/);
+    assert.match(html, /Resumen: Maule: 6/);
+    const cert = html.slice(html.indexOf('<h2>Certificada</h2>'), html.indexOf('<h2>Observada</h2>'));
+    assert.equal((cert.match(/<tr><td>[25]<\/td>/g) || []).length, 2);
+    for (const column of reportes.columnsFor('ingresos')) assert.ok(html.includes(`<th>${column}</th>`), column);
+    assert.match(html, /@page \{ size: letter landscape/);
+});
+
+test('ingresos impreso: estados del catálogo sin carpetas van compactos, sin tabla vacía', () => {
+    const html = ingresosHtml([row({ estadoCarpeta: 'Observada' })]);
+    assert.deepEqual(titles(html), ['Sin estado', 'Certificada', 'Observada', 'En revisión', 'Rechazada']);
+    assert.equal((html.match(/<p class="sin-carpetas">Sin carpetas: 0<\/p>/g) || []).length, 4);
+    assert.equal((html.match(/<table>/g) || []).length, 1, 'solo la tabla de Observada');
+    assert.deepEqual(subtotals(html), ['Subtotal Observada: 1 carpeta']);
+    assert.doesNotMatch(html, /class="empty"/);
+    assert.match(html, /<h2>Rechazada<\/h2>\n<p class="sin-carpetas">Sin carpetas: 0<\/p>/);
+});
+
+test('ingresos impreso: un estado fuera del catálogo va en su propio grupo al final, escapado', () => {
+    const html = ingresosHtml([row({ estadoCarpeta: 'Antiguo <x>' }), row({ estadoCarpeta: 'Certificada' }),
+        row({ estadoCarpeta: 'Otro viejo' })]);
+    assert.deepEqual(titles(html), ['Sin estado', 'Certificada', 'Observada', 'En revisión', 'Rechazada',
+        'Antiguo &lt;x&gt;', 'Otro viejo']);
+    assert.match(html, /Subtotal Antiguo &lt;x&gt;: 1 carpeta/);
+    assert.doesNotMatch(html, /<x>/);
+    assert.match(html, /TOTAL GENERAL: 3 carpetas/);
+});
+
+test('ingresos impreso sin catálogo: solo estados presentes, con Sin estado y Certificada primero, sin fallar', () => {
+    const registros = [row({ estadoCarpeta: 'Rechazada' }), row({ estadoCarpeta: 'Observada' }),
+        row({ estadoCarpeta: 'CERTIFICADA' }), row({ estadoCarpeta: '' })];
+    for (const estados of [undefined, null, [], 'no es lista', [null, '  ']]) {
+        const html = ingresosHtml(registros, estados);
+        assert.deepEqual(titles(html), ['Sin estado', 'Certificada', 'Rechazada', 'Observada'], String(estados));
+        assert.doesNotMatch(html, /sin-carpetas">/);
+        assert.match(html, /TOTAL GENERAL: 4 carpetas/);
+    }
+    const soloObservada = ingresosHtml([row({ estadoCarpeta: 'Observada' })], undefined);
+    assert.deepEqual(titles(soloObservada), ['Observada'], 'sin catálogo no se inventan grupos vacíos');
+});
+
+test('ingresos impreso: bloque Facturación con cantidad y monto bajo el resumen, y columnas en cada grupo', () => {
+    const registros = [row({ facturacion: 'FACTURADA', facturaMonto: 1234567.5 }),
+        row({ facturacion: 'PENDIENTE DE FACTURAR', estadoCarpeta: 'Observada', facturaNumero: '', facturaMonto: 80000 }),
+        row({ facturacion: 'SIN SOLICITAR', estadoCarpeta: 'Observada', facturaNumero: '', facturaMonto: null })];
+    const html = ingresosHtml(registros);
+    assert.match(html, /<p class="meta facturacion">Facturación: FACTURADA: 1 \(\$ 1\.234\.567,5\) \| PENDIENTE DE FACTURAR: 1 \(\$ 80\.000\) \| SIN SOLICITAR: 1 \(\$ 0\)<\/p>/);
+    assert.ok(html.indexOf('Resumen:') < html.indexOf('Facturación:'));
+    assert.ok(html.indexOf('Facturación:') < html.indexOf('<h2>'));
+    for (const column of ['FACTURACIÓN', 'NRO FACTURA', 'MONTO A FACTURAR']) {
+        assert.equal(html.split(`<th>${column}</th>`).length - 1, 2, `${column} en cada tabla de grupo`);
+    }
+    assert.match(html, /<td>Certificada<\/td><td>FACTURADA<\/td><td>1234<\/td><td>\$ 1\.234\.567,5<\/td>/);
+    assert.match(html, /<td>Observada<\/td><td>SIN SOLICITAR<\/td><td><\/td><td><\/td>/);
+    assert.match(html, /th, td \{ font-size: 7\.5pt;[^}]*overflow-wrap: break-word; \}/, 'letra menor solo en ingresos');
+});
+
+test('ingresos impreso: sin montos en el resumen (rol sin acceso) no se muestran montos', () => {
+    const registros = [row({ facturaMonto: null }), row({ facturacion: 'SIN SOLICITAR', facturaMonto: null })];
+    const sinMonto = billingSummary(registros).map(({ etiqueta, cantidad }) => ({ etiqueta, cantidad }));
+    const data = payload('ingresos', registros, { resumenFacturacion: sinMonto });
+    assert.equal(reportes.validateResponse(data, 'ingresos').ok, true);
+    const html = reportes.buildPrintHtml({ tipo: 'ingresos', data, printedAt: 'x', estados: CATALOGO }, escapeHtml);
+    assert.match(html, /Facturación: FACTURADA: 1 \| PENDIENTE DE FACTURAR: 0 \| SIN SOLICITAR: 1<\/p>/);
+    assert.doesNotMatch(html.slice(html.indexOf('Facturación:'), html.indexOf('<h2>')), /\$/);
+    assert.equal(reportes.billingItemLabel({ etiqueta: 'FACTURADA', cantidad: 2, monto: 0 }, true), 'FACTURADA: 2 ($ 0)');
+    assert.equal(reportes.billingItemLabel({ etiqueta: 'FACTURADA', cantidad: 2 }, false), 'FACTURADA: 2');
+});
+
+test('validación ingresos: exige resumenFacturacion con las 3 etiquetas y facturación válida por carpeta', () => {
+    assert.equal(reportes.validateResponse(payload('ingresos'), 'ingresos').ok, true);
+    assert.equal(reportes.validateResponse(payload('ingresos', []), 'ingresos').ok, true);
+    assert.equal(reportes.validateResponse(payload('ingresos', [row({ facturaNumero: '', facturaMonto: null })]), 'ingresos').ok, true);
+    const tres = billingSummary([row()]);
+    const malas = [
+        payload('ingresos', [row()], { resumenFacturacion: undefined }),
+        payload('ingresos', [row()], { resumenFacturacion: tres.slice(0, 2) }),
+        payload('ingresos', [row()], { resumenFacturacion: [tres[0], tres[0], tres[1]] }),
+        payload('ingresos', [row()], { resumenFacturacion: [...tres.slice(0, 2), { etiqueta: 'OTRA', cantidad: 0, monto: 0 }] }),
+        payload('ingresos', [row()], { resumenFacturacion: [{ ...tres[0], cantidad: '1' }, tres[1], tres[2]] }),
+        payload('ingresos', [row()], { resumenFacturacion: [{ ...tres[0], cantidad: 2 }, tres[1], tres[2]] }),
+        payload('ingresos', [row()], { resumenFacturacion: [{ ...tres[0], monto: '1500000' }, tres[1], tres[2]] }),
+        payload('ingresos', [row()], { resumenFacturacion: [{ ...tres[0], monto: -1 }, tres[1], tres[2]] }),
+        payload('ingresos', [row()], { resumenFacturacion: [tres[0], { etiqueta: tres[1].etiqueta, cantidad: 0 }, tres[2]] }),
+        payload('ingresos', [row({ facturacion: 'facturada' })]),
+        payload('ingresos', [row({ facturacion: undefined })]),
+        payload('ingresos', [row({ facturaNumero: null })]),
+        payload('ingresos', [row({ facturaNumero: undefined })]),
+        payload('ingresos', [row({ facturaMonto: '1500000' })]),
+        payload('ingresos', [row({ facturaMonto: undefined })]),
+        payload('ingresos', [row({ facturaMonto: NaN })])
+    ];
+    for (const mala of malas) {
+        const result = reportes.validateResponse(mala, 'ingresos');
+        assert.equal(result.ok, false, JSON.stringify(mala));
+        assert.match(result.error, /no tiene el formato esperado/);
+    }
+});
+
+test('validación de los otros reportes: no exige facturación', () => {
+    for (const tipo of ['certificadas', 'fuera-plazo', 'hallazgos']) {
+        const sinCampos = payload(tipo, [row({ facturacion: undefined, facturaNumero: undefined, facturaMonto: undefined })]);
+        assert.equal(reportes.validateResponse(sinCampos, tipo).ok, true, tipo);
+        for (const column of ['FACTURACIÓN', 'NRO FACTURA', 'MONTO A FACTURAR']) {
+            assert.equal(reportes.columnsFor(tipo).includes(column), false, `${tipo} ${column}`);
+        }
+    }
+});
+
+test('los otros reportes siguen en una sola tabla, sin grupos ni facturación', () => {
+    for (const tipo of ['certificadas', 'fuera-plazo', 'hallazgos']) {
+        const html = reportes.buildPrintHtml({ tipo, data: payload(tipo, [row(), row({ estadoCarpeta: 'Observada' })]),
+            printedAt: 'x', estados: CATALOGO }, escapeHtml);
+        assert.equal((html.match(/<table>/g) || []).length, 1, tipo);
+        assert.doesNotMatch(html, /<h2>|subtotal">|TOTAL GENERAL|Facturación|FACTURACIÓN|FACTURA<|sin-carpetas">|7\.5pt/, tipo);
+    }
+});
+
+test('la hoja de sin movimiento (M-026) mantiene sus dos secciones con subtotal y total general', () => {
+    const html = impresion.buildPrintHtml({ title: 'T', printedAt: 'x', filters: {}, rows: [
+        { motivo: 'INGRESO', cells: ['1', '<b>'] }] }, escapeHtml);
+    assert.deepEqual(titles(html), ['INGRESO', 'REINGRESO SUBSANADA']);
+    assert.deepEqual(subtotals(html), ['Subtotal INGRESO: 1 carpeta', 'Subtotal REINGRESO SUBSANADA: 0 carpetas']);
+    assert.match(html, /<td colspan="9" class="empty">Sin carpetas<\/td>/);
+    assert.match(html, /<td>&lt;b&gt;<\/td><td><\/td>/);
+    assert.match(html, /TOTAL GENERAL: 1 carpeta/);
+});
+
+test('ventana: Facturación y sus columnas solo en ingresos; la hoja usa el catálogo del selector', async () => {
+    const { ui, el, take, printed } = loadReportesUi({
+        configuredDocumentGroups: [{ id: 'g1' }, { id: 'g2' }],
+        configuredDocumentOptions: [{ label: 'Rechazada', groupId: 'g2' }, { label: 'Observada', groupId: 'g1' }]
+    });
+    ui.open('ingresos');
+    take(/sucursales-disponibles/).resolve({ sucursales: [] });
+    const headTexts = () => el('reporteHead').children.map((th) => th.textContent);
+    for (const column of ['FACTURACIÓN', 'NRO FACTURA', 'MONTO A FACTURAR']) assert.ok(headTexts().includes(column), column);
+    el('reporteFilterForm').dispatch('submit');
+    take(/\/reportes\/ingresos/).resolve(payload('ingresos', [row(), row({ facturacion: 'SIN SOLICITAR', facturaMonto: null })]));
+    await flush();
+    assert.equal(el('reporteFacturacionBloque').classList.contains('hidden'), false);
+    assert.deepEqual(el('reporteFacturacion').children.map((li) => li.textContent),
+        ['FACTURADA: 1 ($ 1.500.000)', 'PENDIENTE DE FACTURAR: 0 ($ 0)', 'SIN SOLICITAR: 1 ($ 0)']);
+    const cells = el('reporteBody').children[0].children.map((td) => td.textContent);
+    assert.equal(cells.length, reportes.columnsFor('ingresos').length);
+    assert.deepEqual(cells.slice(9, 12), ['FACTURADA', '1234', '$ 1.500.000']);
+    el('reporteImprimirBtn').dispatch('click');
+    assert.equal(printed.length, 1);
+    assert.deepEqual(titles(printed[0]), ['Sin estado', 'Certificada', 'Observada', 'Rechazada']);
+
+    ui.open('certificadas');
+    take(/sucursales-disponibles/).resolve({ sucursales: [] });
+    assert.equal(el('reporteFacturacionBloque').classList.contains('hidden'), true);
+    assert.equal(headTexts().some((name) => /FACTURA/.test(name)), false);
+    el('reporteFilterForm').dispatch('submit');
+    take(/\/reportes\/certificadas/).resolve(payload('certificadas', [row({ facturacion: undefined })]));
+    await flush();
+    assert.equal(el('reporteFacturacionBloque').classList.contains('hidden'), true);
+    assert.equal(el('reporteFacturacion').children.length, 0);
+});
+
+test('ventana: ingresos sin montos muestra solo cantidades', async () => {
+    const { ui, el, take } = loadReportesUi();
+    ui.open('ingresos');
+    take(/sucursales-disponibles/).resolve({ sucursales: [] });
+    el('reporteFilterForm').dispatch('submit');
+    const registros = [row({ facturaMonto: null })];
+    const sinMonto = billingSummary(registros).map(({ etiqueta, cantidad }) => ({ etiqueta, cantidad }));
+    take(/\/reportes\/ingresos/).resolve(payload('ingresos', registros, { resumenFacturacion: sinMonto }));
+    await flush();
+    assert.deepEqual(el('reporteFacturacion').children.map((li) => li.textContent),
+        ['FACTURADA: 1', 'PENDIENTE DE FACTURAR: 0', 'SIN SOLICITAR: 0']);
+});
+
+test('ventana: ingresos sin resumenFacturacion se muestra como error de formato, no como vacío', async () => {
+    const { ui, el, take } = loadReportesUi();
+    ui.open('ingresos');
+    take(/sucursales-disponibles/).resolve({ sucursales: [] });
+    el('reporteFilterForm').dispatch('submit');
+    take(/\/reportes\/ingresos/).resolve(payload('ingresos', [row()], { resumenFacturacion: undefined }));
+    await flush();
+    assert.match(el('reporteMessage').textContent, /no tiene el formato esperado \(resumen de facturación\)/);
+    assert.equal(el('reporteResultado').classList.contains('hidden'), true);
+    assert.equal(el('reporteImprimirBtn').disabled, true);
 });

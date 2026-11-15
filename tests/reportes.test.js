@@ -237,7 +237,8 @@ test('reportes ingresos: rango inclusive, resumen por estado actual y orden por 
     const primero = res.json.registros[0];
     assert.deepEqual(primero, {
         numIngreso: '1-2026', fechaIngreso: '2026-03-01 00:00:00', fechaEvento: '2026-03-01 00:00:00', nombre: 'Cliente 1-2026',
-        rut: '1-9', region: 'Maule', comuna: 'Talca', sucursal: 'Casa Matriz', numLotes: 2, estadoCarpeta: 'Recibido', detalle: ''
+        rut: '1-9', region: 'Maule', comuna: 'Talca', sucursal: 'Casa Matriz', numLotes: 2, estadoCarpeta: 'Recibido', detalle: '',
+        facturaNumero: '', facturaMonto: null, facturacion: 'SIN SOLICITAR'
     });
     assert.equal(res.json.registros.find((r) => r.numIngreso === '2-2026').sucursal, 'Casa Matriz');
 
@@ -246,6 +247,66 @@ test('reportes ingresos: rango inclusive, resumen por estado actual y orden por 
     assert.deepEqual(nums(await f.get('/api/reportes/ingresos?desde=2026-03-01&hasta=2026-03-01', cookie)), ['1-2026']);
     assert.deepEqual(nums(await f.get('/api/reportes/ingresos?desde=2026-03-31&hasta=2026-03-31', cookie)), ['3-2026']);
     assert.deepEqual(nums(await f.get('/api/reportes/ingresos?desde=2026-04-01&hasta=2026-04-01', cookie)), ['5-2026']);
+});
+
+test('reportes ingresos: facturacion por carpeta y resumenFacturacion fijo; los otros tipos no la traen', async (t) => {
+    const f = await fixture(t);
+    seedMarzo(f);
+    const factura = (num, estado, numero, monto) =>
+        f.db.prepare('UPDATE registros SET estado = ?, factura_numero = ?, factura_monto = ? WHERE num_ingreso = ?').run(estado, numero, monto, num);
+    const cookie = await f.loginAs('SUPERVISOR');
+
+    // Sin datos de factura: todas SIN SOLICITAR y las otras etiquetas en 0.
+    const vacio = await f.get(`/api/reportes/ingresos${MARZO}`, cookie);
+    assert.deepEqual(vacio.json.resumenFacturacion, [
+        { etiqueta: 'FACTURADA', cantidad: 0, monto: 0 },
+        { etiqueta: 'PENDIENTE DE FACTURAR', cantidad: 0, monto: 0 },
+        { etiqueta: 'SIN SOLICITAR', cantidad: 5, monto: 0 }
+    ]);
+
+    // 1: facturada (variante 'si') con numero y monto. 2: facturada sin monto ni numero.
+    // 4: no facturada con monto. 3: sin estado, solo numero. 7: no facturada con monto 0 y numero en blanco.
+    // 6 queda fuera del rango aunque este facturada.
+    factura('1-2026', 'si', '555', 1500.25);
+    factura('2-2026', 'facturada', null, null);
+    factura('4-2026', 'no_facturada', '', 2000.5);
+    factura('3-2026', null, ' 77 ', null);
+    factura('7-2026', 'no_facturada', '  ', 0);
+    factura('6-2026', 'facturada', '9', 9999);
+
+    for (const role of ['SUPERVISOR', 'SECRETARIA', 'SUPER']) {
+        const res = await f.get(`/api/reportes/ingresos${MARZO}`, role === 'SUPERVISOR' ? cookie : await f.loginAs(role));
+        assert.equal(res.status, 200, role);
+        assert.deepEqual(res.json.registros.map((r) => [r.numIngreso, r.facturacion, r.facturaNumero, r.facturaMonto]), [
+            ['1-2026', 'FACTURADA', '555', 1500.25],
+            ['2-2026', 'FACTURADA', '', null],
+            ['4-2026', 'PENDIENTE DE FACTURAR', '', 2000.5],
+            ['7-2026', 'SIN SOLICITAR', '', 0],
+            ['3-2026', 'PENDIENTE DE FACTURAR', '77', null]
+        ], role);
+        assert.deepEqual(res.json.resumenFacturacion, [
+            { etiqueta: 'FACTURADA', cantidad: 2, monto: 1500.25 },
+            { etiqueta: 'PENDIENTE DE FACTURAR', cantidad: 2, monto: 2000.5 },
+            { etiqueta: 'SIN SOLICITAR', cantidad: 1, monto: 0 }
+        ], role);
+        assert.equal(res.json.resumenFacturacion.reduce((t, item) => t + item.cantidad, 0), res.json.total, role);
+        // El resumen por estado de carpeta no cambia.
+        assert.deepEqual(res.json.resumen, vacio.json.resumen, role);
+    }
+
+    // Un filtro sin carpetas deja las tres etiquetas en 0 y suma el total.
+    const nada = await f.get(`/api/reportes/ingresos${MARZO}&region=Biobio`, cookie);
+    assert.equal(nada.json.total, 0);
+    assert.deepEqual(nada.json.resumenFacturacion.map((item) => [item.etiqueta, item.cantidad, item.monto]),
+        [['FACTURADA', 0, 0], ['PENDIENTE DE FACTURAR', 0, 0], ['SIN SOLICITAR', 0, 0]]);
+
+    for (const tipo of ['certificadas', 'fuera-plazo', 'hallazgos']) {
+        const res = await f.get(`/api/reportes/${tipo}?desde=2025-01-01&hasta=2026-12-31`, cookie);
+        assert.equal(res.status, 200, tipo);
+        assert.ok(!('resumenFacturacion' in res.json), tipo);
+        assert.ok(res.json.registros.length > 0, tipo);
+        assert.ok(res.json.registros.every((r) => !('facturacion' in r) && !('facturaNumero' in r) && !('facturaMonto' in r)), tipo);
+    }
 });
 
 test('reportes certificadas: ultima certificacion, sin movimiento usa ingreso y certificada luego cambiada no sale', async (t) => {

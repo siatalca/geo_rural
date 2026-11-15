@@ -45,18 +45,8 @@
         const esc = (value) => escapeHtml(String(value ?? ''));
         const sections = groupBySection(rows);
         const total = sections.reduce((sum, section) => sum + section.rows.length, 0);
-        const head = `<tr>${COLUMNS.map((name) => `<th>${esc(name)}</th>`).join('')}</tr>`;
-        const sectionHtml = sections.map((section) => {
-            const body = section.rows.length
-                ? section.rows.map((row) => `<tr>${COLUMNS.map((_, index) => `<td>${esc(row.cells?.[index])}</td>`).join('')}</tr>`).join('')
-                : `<tr><td colspan="${COLUMNS.length}" class="empty">Sin carpetas</td></tr>`;
-            return `<h2>${esc(section.name)}</h2>
-<table>
-<thead>${head}</thead>
-<tbody>${body}</tbody>
-</table>
-<p class="subtotal">Subtotal ${esc(section.name)}: ${esc(totalLabel(section.rows.length))}</p>`;
-        }).join('\n');
+        const sectionHtml = sections.map((section) => buildSectionHtml(section.name, COLUMNS,
+            section.rows.map((row) => COLUMNS.map((_, index) => row.cells?.[index])), escapeHtml)).join('\n');
 
         return wrapPrintDocument(title, `<h1>${esc(title)}</h1>
 <p class="meta">Fecha de impresion: ${esc(printedAt)}</p>
@@ -64,6 +54,22 @@
 <p class="total">Total: ${esc(totalLabel(total))}</p>
 ${sectionHtml}
 <p class="total-general">TOTAL GENERAL: ${esc(totalLabel(total))}</p>`, escapeHtml);
+    }
+
+    // Seccion con titulo, tabla y subtotal. cellRows: [[textos en el orden de columns]], se escapan aqui.
+    // Tambien la usa el DETALLE DE INGRESOS de los reportes (M-028).
+    function buildSectionHtml(name, columns, cellRows, escapeHtml) {
+        const esc = (value) => escapeHtml(String(value ?? ''));
+        const head = `<tr>${columns.map((column) => `<th>${esc(column)}</th>`).join('')}</tr>`;
+        const body = cellRows.length
+            ? cellRows.map((cells) => `<tr>${cells.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('')
+            : `<tr><td colspan="${columns.length}" class="empty">Sin carpetas</td></tr>`;
+        return `<h2>${esc(name)}</h2>
+<table>
+<thead>${head}</thead>
+<tbody>${body}</tbody>
+</table>
+<p class="subtotal">Subtotal ${esc(name)}: ${esc(totalLabel(cellRows.length))}</p>`;
     }
 
     // Documento carta horizontal con encabezado de tabla repetido en cada hoja. bodyHtml ya viene escapado.
@@ -100,5 +106,5 @@ ${bodyHtml}
 </html>`;
     }
 
-    return { COLUMNS, totalLabel, describeFilters, groupBySection, buildPrintHtml, wrapPrintDocument };
+    return { COLUMNS, totalLabel, describeFilters, groupBySection, buildSectionHtml, buildPrintHtml, wrapPrintDocument };
 });

@@ -1,7 +1,8 @@
 // Menu REPORTES y su ventana (supervisor, secretaria y super; con «VER COMO» rige el rol visto).
 // La logica pura (definiciones, contrato y hoja impresa) vive en reportes-impresion.js (window.SiaReportes).
 // Usa funciones globales de script.js: apiRequest, escapeHtml, populateRegiones, openSolicitudPrintFrame,
-// setFormMessage, canUseReports, currentUser y dateRangeAvailableBranches.
+// setFormMessage, canUseReports, currentUser y dateRangeAvailableBranches; y el catalogo de estados de carpeta
+// (configuredDocumentGroups y configuredDocumentOptions) para agrupar la hoja de ingresos.
 (function () {
     const $ = (id) => document.getElementById(id);
     const R = window.SiaReportes;
@@ -28,6 +29,22 @@
         if (body) body.innerHTML = '';
         const resumen = $('reporteResumen');
         if (resumen) resumen.innerHTML = '';
+        const facturacion = $('reporteFacturacion');
+        if (facturacion) facturacion.innerHTML = '';
+        $('reporteFacturacionBloque')?.classList.add('hidden');
+    }
+
+    // Etiquetas del catalogo de ESTADO CARPETA en el orden del selector del formulario (grupos y, dentro de cada
+    // uno, sus estados). Viene de script.js (configuredDocumentGroups/Options, cargados de /api/carpeta-estados/catalogo).
+    // Si no esta disponible devuelve [] y la hoja agrupa solo por los estados presentes.
+    function folderStatusLabels() {
+        try {
+            return R.catalogLabels(
+                typeof configuredDocumentGroups !== 'undefined' ? configuredDocumentGroups : [],
+                typeof configuredDocumentOptions !== 'undefined' ? configuredDocumentOptions : []);
+        } catch (error) {
+            return [];
+        }
     }
 
     // select: la lista SEDE a llenar (la de esta ventana o la de ESTADÍSTICAS DE CARPETAS del supervisor).
@@ -79,6 +96,17 @@
             resumen.appendChild(li);
         });
         resumen.classList.toggle('hidden', data.resumen.length === 0);
+        // Solo «ingresos» trae resumenFacturacion (ya validado); en los otros reportes el bloque queda oculto.
+        const facturacion = $('reporteFacturacion');
+        facturacion.innerHTML = '';
+        const billing = tipo === 'ingresos' && Array.isArray(data.resumenFacturacion) ? data.resumenFacturacion : [];
+        const withAmounts = R.billingHasAmounts(billing);
+        billing.forEach((item) => {
+            const li = document.createElement('li');
+            li.textContent = R.billingItemLabel(item, withAmounts);
+            facturacion.appendChild(li);
+        });
+        $('reporteFacturacionBloque').classList.toggle('hidden', billing.length === 0);
         const body = $('reporteBody');
         body.innerHTML = '';
         if (!data.registros.length) {
@@ -156,7 +184,8 @@
         const printedAt = new Date().toLocaleString('es-CL', {
             year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
         });
-        openSolicitudPrintFrame(R.buildPrintHtml({ tipo: state.tipo, data, printedAt }, escapeHtml));
+        const estados = state.tipo === 'ingresos' ? folderStatusLabels() : [];
+        openSolicitudPrintFrame(R.buildPrintHtml({ tipo: state.tipo, data, printedAt, estados }, escapeHtml));
     }
 
     function open(tipo) {

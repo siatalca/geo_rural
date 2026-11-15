@@ -9636,6 +9636,20 @@ function compareNumIngreso(left, right) {
     return String(left || '').localeCompare(String(right || ''), 'es');
 }
 
+// Facturacion de una carpeta en el reporte de ingresos, solo con sus datos en registros: facturada si ESTADO FACTURA
+// es facturada; pendiente si ya tiene MONTO A FACTURAR mayor a 0 o NRO FACTURA; si no, sin solicitar.
+const REPORTE_FACTURACION_ETIQUETAS = Object.freeze(['FACTURADA', 'PENDIENTE DE FACTURAR', 'SIN SOLICITAR']);
+
+function clasificarFacturacionReporte({ estado, facturaNumero, facturaMonto }) {
+    if (normalizeEstado(estado) === 'facturada') {
+        return REPORTE_FACTURACION_ETIQUETAS[0];
+    }
+    if ((Number.isFinite(facturaMonto) && facturaMonto > 0) || normalizeText(facturaNumero)) {
+        return REPORTE_FACTURACION_ETIQUETAS[1];
+    }
+    return REPORTE_FACTURACION_ETIQUETAS[2];
+}
+
 function pluralizar(cantidad, singular, plural) {
     return `${cantidad} ${cantidad === 1 ? singular : plural}`;
 }
@@ -9725,7 +9739,8 @@ app.get('/api/reportes/:tipo', async (req, res) => {
                     SELECT
                         r.num_ingreso, r.nombre, r.rut, r.region, r.comuna, r.num_lotes, r.estado_carpeta,
                         r.created_by_sucursal AS sucursal,
-                        COALESCE(hstats.primer_movimiento_at, r.created_at) AS fecha_ingreso
+                        COALESCE(hstats.primer_movimiento_at, r.created_at) AS fecha_ingreso,
+                        r.estado AS estado_factura, r.factura_numero, r.factura_monto
                     FROM registros r
                     ${primerMovimientoJoin}
                     WHERE COALESCE(hstats.primer_movimiento_at, r.created_at) >= ?
@@ -9733,7 +9748,21 @@ app.get('/api/reportes/:tipo', async (req, res) => {
                 `,
                 [rango.desdeAt, rango.hastaAt, ...filtroValues]
             );
-            registros = rows.map((row) => toReporteRow(row, row.fecha_ingreso, ''));
+            // Los tres roles del reporte pueden ver estado, numero (canSeeFacturaData) y monto de factura.
+            registros = rows.map((row) => {
+                const parsedMonto = Number(row.factura_monto);
+                const facturaMonto =
+                    row.factura_monto === null || typeof row.factura_monto === 'undefined' || !Number.isFinite(parsedMonto)
+                        ? null
+                        : parsedMonto;
+                const facturaNumero = normalizeText(row.factura_numero);
+                return {
+                    ...toReporteRow(row, row.fecha_ingreso, ''),
+                    facturaNumero,
+                    facturaMonto,
+                    facturacion: clasificarFacturacionReporte({ estado: row.estado_factura, facturaNumero, facturaMonto })
+                };
+            });
             resumenPor = (item) => item.estadoCarpeta;
         } else if (tipo === 'certificadas') {
             // Fecha de certificacion: ultimo MODIFICACION cuyo detalle registra el cambio de estado de carpeta
@@ -9851,6 +9880,21 @@ app.get('/api/reportes/:tipo', async (req, res) => {
             resumen.sort((left, right) => right.cantidad - left.cantidad || left.etiqueta.localeCompare(right.etiqueta, 'es'));
         }
 
+        // Solo ingresos: conteo y monto fijos por facturacion, con las tres etiquetas aunque queden en 0.
+        const resumenFacturacion =
+            tipo === 'ingresos'
+                ? {
+                      resumenFacturacion: REPORTE_FACTURACION_ETIQUETAS.map((etiqueta) => {
+                          const deLaClase = registros.filter((item) => item.facturacion === etiqueta);
+                          return {
+                              etiqueta,
+                              cantidad: deLaClase.length,
+                              monto: Math.round(deLaClase.reduce((total, item) => total + (item.facturaMonto || 0), 0) * 100) / 100
+                          };
+                      })
+                  }
+                : {};
+
         return res.json({
             tipo,
             desde: rango.desde,
@@ -9858,6 +9902,7 @@ app.get('/api/reportes/:tipo', async (req, res) => {
             filtros: { region, sucursal },
             total: registros.length,
             resumen,
+            ...resumenFacturacion,
             registros: registros.map(({ motivo, ...item }) => item)
         });
     } catch (error) {
