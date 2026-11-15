@@ -39,6 +39,25 @@ body .sia-guide-steps p, body .sia-company-note p { margin: 0; line-height: 1.55
 .sia-onboarding button:focus-visible, .sia-creator a:focus-visible { outline: 3px solid var(--brand-accent); outline-offset: 4px; }
 .sia-onboarding button:disabled { cursor: wait; opacity: 0.65; }
 
+/* Botón «INSTALAR APP» del login (assets/js/instalar-app.js). */
+body .install-app-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    min-width: 0;
+    margin: 4px 0 12px;
+    padding: 6px 12px;
+    border: 1px solid var(--brand-dark);
+    background: transparent;
+    color: var(--brand-dark);
+    font-size: 0.82rem;
+}
+.install-app-btn:hover { background: var(--brand-tint-2); }
+.install-app-btn:focus-visible { outline: 3px solid var(--brand-accent); outline-offset: 2px; }
+.install-app-btn svg { width: 16px; height: 16px; flex: none; }
+body .install-app-btn[hidden] { display: none; }
+
 /* Ayuda breve de botones (assets/js/button-help.js). */
 .button-help-tip {
     position: fixed;

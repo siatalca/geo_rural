@@ -7,6 +7,8 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
     return {
         appName: 'Geo Rural',
+        // Color de la barra del navegador y de la app instalada (igual a theme_color de assets/site/manifest.webmanifest).
+        themeColor: '#0a5c45',
         // Prefijo de localStorage/sessionStorage y nombre de la cookie de sesión.
         storagePrefix: 'geo_rural',
         sessionCookie: 'geo_rural_session',

@@ -24,6 +24,7 @@ const COMMON_FILES = [
     'assets/js/reportes-impresion.js',
     'assets/js/reportes.js',
     'assets/js/estadisticas-carpetas.js',
+    'assets/js/instalar-app.js',
     'assets/js/pages/seguimiento.js',
     'assets/js/pages/mantenimiento.js',
     'assets/css/brand.css',
@@ -40,6 +41,7 @@ const COMMON_FILES = [
     'tests/reportes.test.js',
     'tests/reportes-cliente.test.js',
     'tests/estadisticas-cliente.test.js',
+    'tests/manifest-app.test.js',
     'tools/sincronizar-comun.js',
     'docs/CODIGO_COMUN.md'
 ];
