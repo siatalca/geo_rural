@@ -35,6 +35,8 @@
     const TYPES = Object.keys(REPORTS);
     // Valores de registros[].facturacion y etiquetas de resumenFacturacion (solo en «ingresos»).
     const BILLING_STATES = ['FACTURADA', 'PENDIENTE DE FACTURAR', 'SIN SOLICITAR'];
+    // Valores de registros[].motivo (solo en «fuera-plazo»), en el orden de las secciones de la hoja.
+    const FUERA_PLAZO_MOTIVOS = impresion.SECTIONS;
     const TEXT_FIELDS =['numIngreso', 'nombre', 'rut', 'region', 'comuna', 'sucursal', 'estadoCarpeta', 'detalle'];
 
     function getReport(tipo) {
@@ -127,6 +129,11 @@
             const badBilling = payload.registros.findIndex((row) => !BILLING_STATES.includes(row.facturacion)
                 || typeof row.facturaNumero !== 'string' || !(row.facturaMonto === null || isAmount(row.facturaMonto)));
             if (badBilling >= 0) return fail(`facturación de la carpeta ${badBilling + 1}`);
+        }
+        if (tipo === 'fuera-plazo') {
+            // La hoja se separa por motivo: cada carpeta debe traer INGRESO o REINGRESO SUBSANADA.
+            const badMotivo = payload.registros.findIndex((row) => !FUERA_PLAZO_MOTIVOS.includes(row.motivo));
+            if (badMotivo >= 0) return fail(`motivo de la carpeta ${badMotivo + 1}`);
         }
         return { ok: true, data: payload };
     }
@@ -244,26 +251,45 @@
         const columns = columnsFor('ingresos');
         const sections = groupByStatus(data.registros, estados).map((group) => (group.compact
             ? `<h2>${esc(group.name)}</h2>\n<p class="sin-carpetas">Sin carpetas: 0</p>`
-            : impresion.buildSectionHtml(group.name, columns, group.rows.map((row) => rowCells(row, 'ingresos')), escapeHtml)));
+            : impresion.buildSectionHtml(group.name, columns, sortRows(group.rows).map((row) => rowCells(row, 'ingresos')), escapeHtml)));
+        return `${sections.join('\n')}
+<p class="total-general">TOTAL GENERAL: ${esc(totalLabel(data.registros.length))}</p>`;
+    }
+
+    // Copia de las carpetas ordenada por NRO INGRESO (año y correlativo), como las demas hojas impresas.
+    function sortRows(registros) {
+        return impresion.sortByNumIngreso(registros, (row) => row?.numIngreso);
+    }
+
+    // PENDIENTES FUERA DE PLAZO: INGRESO y REINGRESO SUBSANADA (registros[].motivo), como la hoja de sin movimiento.
+    function fueraPlazoSectionsHtml(data, escapeHtml) {
+        const esc = (value) => escapeHtml(String(value ?? ''));
+        const columns = columnsFor('fuera-plazo');
+        const sections = impresion.groupBySection(data.registros, (row) => row?.motivo, (row) => row?.numIngreso)
+            .map((section) => impresion.buildSectionHtml(section.name, columns,
+                section.rows.map((row) => rowCells(row, 'fuera-plazo')), escapeHtml));
         return `${sections.join('\n')}
 <p class="total-general">TOTAL GENERAL: ${esc(totalLabel(data.registros.length))}</p>`;
     }
 
     // data: respuesta ya validada por validateResponse. estados: etiquetas del catalogo de estado de carpeta en
-    // orden (solo para «ingresos», que se imprime agrupado por estado); los otros reportes van en una sola tabla.
+    // orden (solo para «ingresos», que se imprime agrupado por estado). «fuera-plazo» va en 2 tablas por motivo y
+    // los otros reportes en una sola tabla. Toda tabla va ordenada por NRO INGRESO.
     function buildPrintHtml({ tipo, data, printedAt, estados }, escapeHtml) {
         const esc = (value) => escapeHtml(String(value ?? ''));
         const report = getReport(tipo);
         const columns = columnsFor(tipo);
         const head = `<tr>${columns.map((name) => `<th>${esc(name)}</th>`).join('')}</tr>`;
         const body = data.registros.length
-            ? data.registros.map((row) => `<tr>${rowCells(row, tipo).map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('')
+            ? sortRows(data.registros).map((row) =>`<tr>${rowCells(row, tipo).map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('')
             : `<tr><td colspan="${columns.length}" class="empty">Sin carpetas</td></tr>`;
         const filtros = data.filtros || {};
         const summary = describeSummary(data.resumen);
         const detail = tipo === 'ingresos'
             ? ingresosSectionsHtml(data, estados, escapeHtml)
-            : `<table>
+            : tipo === 'fuera-plazo'
+                ? fueraPlazoSectionsHtml(data, escapeHtml)
+                : `<table>
 <thead>${head}</thead>
 <tbody>${body}</tbody>
 </table>`;
@@ -277,5 +303,5 @@ ${tipo === 'ingresos' ? `<p class="meta facturacion">Facturación: ${esc(describ
     }
 
     return { REPORTS, TYPES, getReport, columnsFor, defaultRange, parseDate, formatDate, validateResponse, totalLabel, rowCells,
-        describeRange, describeSummary, describeBilling, billingHasAmounts, billingItemLabel, formatPesos, BILLING_STATES, statusKey, catalogLabels, groupByStatus, buildPrintHtml };
+        describeRange, describeSummary, describeBilling, billingHasAmounts, billingItemLabel, formatPesos, BILLING_STATES, FUERA_PLAZO_MOTIVOS, statusKey, catalogLabels, groupByStatus, buildPrintHtml };
 });

@@ -436,6 +436,8 @@ let secretaryNoMovementRecords = [];
 // Lo que muestra la ventana: filtros aplicados y carpetas resultantes (se imprime tal cual).
 let secretaryNoMovementShown = { filters: {}, records: [] };
 let dateRangeMatches = [];
+// Filtros con que se obtuvo dateRangeMatches (los que van en la hoja impresa, aunque luego cambie el formulario).
+let dateRangeSearchFilters = {};
 let selectedDateRangeIngreso = '';
 let dateRangeCurrentPage = 1;
 let dateRangePageSize = 6;
@@ -773,6 +775,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         dateRangeResultsBody: document.getElementById('dateRangeResultsBody'),
         dateRangeMessage: document.getElementById('dateRangeMessage'),
         dateRangeExportBtn: document.getElementById('dateRangeExportBtn'),
+        dateRangePrintBtn: document.getElementById('dateRangePrintBtn'),
         dateRangeAcceptBtn: document.getElementById('dateRangeAcceptBtn'),
         dateRangeCancelBtn: document.getElementById('dateRangeCancelBtn'),
         dateRangeFirstBtn: document.getElementById('dateRangeFirstBtn'),
@@ -1229,6 +1232,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (ui.dateRangeExportBtn) {
         ui.dateRangeExportBtn.addEventListener('click', () => void handleDateRangeExportWorkbook());
+    }
+    if (ui.dateRangePrintBtn) {
+        ui.dateRangePrintBtn.addEventListener('click', handleDateRangePrint);
     }
     if (ui.dateRangeCancelBtn) {
         ui.dateRangeCancelBtn.addEventListener('click', closeDateRangeModal);
@@ -4548,11 +4554,15 @@ function closeDateRangeModal(options = {}) {
 }
 
 function updateDateRangeExportButtonState(registros) {
+    const hasResults = Array.isArray(registros) && registros.length > 0;
+    // IMPRIMIR siempre visible en la ventana; deshabilitado sin resultados.
+    if (ui?.dateRangePrintBtn) {
+        ui.dateRangePrintBtn.disabled = !hasResults;
+    }
     if (!ui || !ui.dateRangeExportBtn) {
         return;
     }
 
-    const hasResults = Array.isArray(registros) && registros.length > 0;
     ui.dateRangeExportBtn.classList.toggle('hidden', !hasResults);
     ui.dateRangeExportBtn.disabled = !hasResults;
 }
@@ -4970,6 +4980,7 @@ async function handleDateRangeSearch(event) {
         const result = await apiRequest(`/registros/buscar-rango-fechas?${query.toString()}`);
         const registros = Array.isArray(result.registros) ? result.registros : [];
         dateRangeMatches = registros;
+        dateRangeSearchFilters = { desde: fechaDesde, hasta: fechaHasta, sucursal, region, comuna };
         dateRangeCurrentPage = 1;
         selectedDateRangeIngreso = registros.length === 1 ? String(registros[0].numIngreso || '') : '';
         renderDateRangeResults(registros);
@@ -5215,6 +5226,27 @@ async function handleDateRangeExportWorkbook() {
             'error'
         );
     }
+}
+
+// IMPRIMIR de BUSCAR POR FECHA: todas las carpetas de la busqueda (no solo la pagina visible), con las columnas
+// y textos del Excel para el rol actual, ordenadas por NRO INGRESO.
+function handleDateRangePrint() {
+    const registros = Array.isArray(dateRangeMatches) ? dateRangeMatches : [];
+    if (registros.length === 0) {
+        setFormMessage(ui?.dateRangeMessage, 'No hay resultados para imprimir.', 'error');
+        return;
+    }
+
+    const printedAt = new Date().toLocaleString('es-CL', {
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    openSolicitudPrintFrame(window.SiaSinMovimientoImpresion.buildDateRangePrintHtml({
+        printedAt,
+        filters: dateRangeSearchFilters,
+        columns: getDateRangeExportColumns().map(([header]) => header),
+        registros,
+        rowsOf: buildDateRangeExportRows
+    }, escapeHtml));
 }
 
 async function handleDateRangeAcceptSelection() {

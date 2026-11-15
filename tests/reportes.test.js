@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { createRequire } = require('node:module');
 const { DatabaseSync } = require('node:sqlite');
 const { ensureBootstrapAccount } = require('../server/bootstrap');
+const { validateResponse } = require('../assets/js/reportes-impresion.js');
 
 const serverFile = path.join(__dirname, '../server/server.js');
 
@@ -169,6 +170,8 @@ function seedMarzo(f) {
 
 const MARZO = '?desde=2026-03-01&hasta=2026-03-31';
 const nums = (res) => res.json.registros.map((r) => r.numIngreso);
+// La respuesta real del servidor tiene que pasar la revision del cliente (assets/js/reportes-impresion.js).
+const validarCliente = (res, tipo, mensaje = tipo) => assert.deepEqual(validateResponse(res.json, tipo), { ok: true, data: res.json }, mensaje);
 
 test('reportes: SUPERVISOR, SECRETARIA y SUPER pueden; OPERADOR, ADMIN, CONTADOR, invitado y sin sesion no', async (t) => {
     const f = await fixture(t);
@@ -187,7 +190,17 @@ test('reportes: SUPERVISOR, SECRETARIA y SUPER pueden; OPERADOR, ADMIN, CONTADOR
             assert.equal(res.status, 200, `${role} ${tipo}`);
             assert.equal(res.json.tipo, tipo);
             assert.equal(res.json.total, res.json.registros.length);
+            validarCliente(res, tipo, `${role} ${tipo}`);
         }
+    }
+    // Rango amplio para que los 4 tipos traigan carpetas al pasar por el cliente.
+    const cookie = await f.loginAs('SUPERVISOR', 'sup-amplio');
+    for (const tipo of ['ingresos', 'certificadas', 'fuera-plazo', 'hallazgos']) {
+        const res = await f.get(`/api/reportes/${tipo}?desde=2025-01-01&hasta=2027-12-31`, cookie);
+        assert.ok(res.json.registros.length > 0, tipo);
+        validarCliente(res, tipo);
+        // motivo solo viaja en fuera-plazo.
+        assert.equal(res.json.registros.every((r) => 'motivo' in r), tipo === 'fuera-plazo', tipo);
     }
 });
 
@@ -441,6 +454,16 @@ test('reportes fuera-plazo: misma regla que seguimiento sin movimiento, filtrada
     assert.deepEqual(Object.keys(seguimiento[0]), ['numIngreso', 'nombre', 'rut', 'region', 'comuna', 'sucursal', 'createdAt', 'desdeAt', 'motivo', 'totalMovimientos', 'diasSinMovimiento']);
     assert.equal(res.json.registros[0].estadoCarpeta, 'Recibido');
     assert.deepEqual(res.json.resumen, [{ etiqueta: 'INGRESO', cantidad: 1 }, { etiqueta: 'REINGRESO SUBSANADA', cantidad: 1 }]);
+    // Cada fila trae su motivo, el mismo de seguimiento, y coincide con el resumen.
+    assert.deepEqual(res.json.registros.map((r) => [r.numIngreso, r.motivo]), [['20-2026', 'INGRESO'], ['21-2026', 'REINGRESO SUBSANADA']]);
+    for (const item of res.json.registros) {
+        assert.ok(['INGRESO', 'REINGRESO SUBSANADA'].includes(item.motivo), item.numIngreso);
+        assert.equal(item.motivo, esperados.find((r) => r.numIngreso === item.numIngreso).motivo, item.numIngreso);
+    }
+    for (const { etiqueta, cantidad } of res.json.resumen) {
+        assert.equal(res.json.registros.filter((r) => r.motivo === etiqueta).length, cantidad, etiqueta);
+    }
+    validarCliente(res, 'fuera-plazo');
 
     // El rango corre sobre desdeAt: el reingreso de hace 30 dias queda fuera desde hace 25.
     const corto = await f.get(`/api/reportes/fuera-plazo?desde=${dia(25)}&hasta=${hasta}`, cookie);

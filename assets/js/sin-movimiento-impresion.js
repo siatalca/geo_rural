@@ -1,4 +1,4 @@
-// Hoja impresa del seguimiento de carpetas sin movimiento (15 o mas dias, o en plazo).
+// Hojas impresas: seguimiento de carpetas sin movimiento (15 o mas dias, o en plazo) y BUSCAR POR FECHA.
 // Logica pura (sin DOM): arma el HTML que script.js imprime con openSolicitudPrintFrame.
 (function (root, factory) {
     const api = factory();
@@ -31,14 +31,37 @@
         return parts.length ? parts.map(([label, value]) => `${label}: ${String(value).trim()}`).join(' | ') : 'Sin filtros';
     }
 
-    // rows: [{ motivo, cells: [9 textos en el orden de COLUMNS] }]. Se agrupan por motivo.
-    function groupBySection(rows) {
+    // NRO INGRESO «N-AAAA» -> { correlativo, anio }; null si no tiene ese formato (como parseNumIngreso del servidor).
+    function parseNumIngreso(value) {
+        const match = /^(\d+)-(\d{4})$/.exec(String(value ?? '').trim());
+        return match ? { correlativo: Number(match[1]), anio: Number(match[2]) } : null;
+    }
+
+    // Orden de las hojas impresas: año ascendente y luego correlativo numérico ascendente (como compareNumIngreso
+    // del servidor). Los números con otro formato van al final, ordenados como texto.
+    function compareNumIngreso(left, right) {
+        const a = parseNumIngreso(left);
+        const b = parseNumIngreso(right);
+        if (a && b) return a.anio - b.anio || a.correlativo - b.correlativo;
+        if (a) return -1;
+        if (b) return 1;
+        return String(left ?? '').trim().localeCompare(String(right ?? '').trim(), 'es');
+    }
+
+    // Copia ordenada por NRO INGRESO (orden estable; no cambia la lista recibida). numOf: item -> NRO INGRESO.
+    function sortByNumIngreso(items, numOf) {
+        return (Array.isArray(items) ? items : []).slice().sort((left, right) => compareNumIngreso(numOf(left), numOf(right)));
+    }
+
+    // rows: [{ motivo, cells: [9 textos en el orden de COLUMNS] }]. Se agrupan por motivo (INGRESO si no es
+    // REINGRESO SUBSANADA) y cada grupo va ordenado por NRO INGRESO. motivoOf y numOf permiten otra forma de fila.
+    function groupBySection(rows, motivoOf = (row) => row?.motivo, numOf = (row) => row?.cells?.[0]) {
         const groups = { INGRESO: [], 'REINGRESO SUBSANADA': [] };
         (Array.isArray(rows) ? rows : []).forEach((row) => {
-            const motivo = String(row?.motivo || '').trim().toUpperCase();
+            const motivo = String(motivoOf(row) || '').trim().toUpperCase();
             groups[motivo === 'REINGRESO SUBSANADA' ? 'REINGRESO SUBSANADA' : 'INGRESO'].push(row);
         });
-        return SECTIONS.map((name) => ({ name, rows: groups[name] }));
+        return SECTIONS.map((name) => ({ name, rows: sortByNumIngreso(groups[name], numOf) }));
     }
 
     function buildPrintHtml({ title, printedAt, filters, rows }, escapeHtml) {
@@ -54,6 +77,41 @@
 <p class="total">Total: ${esc(totalLabel(total))}</p>
 ${sectionHtml}
 <p class="total-general">TOTAL GENERAL: ${esc(totalLabel(total))}</p>`, escapeHtml);
+    }
+
+    const DATE_RANGE_TITLE = 'BÚSQUEDA POR FECHA';
+    // 14 columnas en carta horizontal: letra menor; solo el CORREO se corta en cualquier punto, para que nada se salga
+    // sin partir los demas datos (RUT, numeros, encabezados).
+    const DATE_RANGE_CSS = '    th, td { font-size: 7pt; padding: 2pt 3pt; }\n    th { font-size: 6.5pt; }\n'
+        + '    td { overflow-wrap: break-word; }\n    td.correo { overflow-wrap: anywhere; }';
+
+    // filters: { desde, hasta, sucursal, region, comuna } usados en la busqueda; vacio = TODAS.
+    function describeDateRangeFilters(filters) {
+        const f = filters || {};
+        const all = (value) => String(value ?? '').trim() || 'TODAS';
+        return [`Desde: ${formatFilterDate(f.desde)}`, `Hasta: ${formatFilterDate(f.hasta)}`, `Sucursal: ${all(f.sucursal)}`,
+            `Region: ${all(f.region)}`, `Comuna: ${all(f.comuna)}`].join(' | ');
+    }
+
+    // Hoja de BUSCAR POR FECHA: todas las carpetas de la busqueda en una tabla ordenada por NRO INGRESO.
+    // columns: encabezados (los del Excel para el rol actual). rowsOf(registrosOrdenados) -> [[textos por columna]].
+    function buildDateRangePrintHtml({ printedAt, filters, columns, registros, rowsOf }, escapeHtml) {
+        const esc = (value) => escapeHtml(String(value ?? ''));
+        const sorted = sortByNumIngreso(registros, (row) => row?.numIngreso);
+        const cellRows = sorted.length ? rowsOf(sorted) : [];
+        const head = `<tr>${columns.map((column) => `<th>${esc(column)}</th>`).join('')}</tr>`;
+        const body = cellRows.length
+            ? cellRows.map((cells) => `<tr>${columns.map((column, index) =>
+                `<td${column === 'CORREO' ? ' class="correo"' : ''}>${esc(cells[index])}</td>`).join('')}</tr>`).join('')
+            : `<tr><td colspan="${columns.length}" class="empty">Sin carpetas</td></tr>`;
+        return wrapPrintDocument(DATE_RANGE_TITLE, `<h1>${esc(DATE_RANGE_TITLE)}</h1>
+<p class="meta">Fecha de impresión: ${esc(printedAt)}</p>
+<p class="meta">${esc(describeDateRangeFilters(filters))}</p>
+<p class="total">Total: ${esc(totalLabel(sorted.length))}</p>
+<table>
+<thead>${head}</thead>
+<tbody>${body}</tbody>
+</table>`, escapeHtml, DATE_RANGE_CSS);
     }
 
     // Seccion con titulo, tabla y subtotal. cellRows: [[textos en el orden de columns]], se escapan aqui.
@@ -106,5 +164,6 @@ ${bodyHtml}
 </html>`;
     }
 
-    return { COLUMNS, totalLabel, describeFilters, groupBySection, buildSectionHtml, buildPrintHtml, wrapPrintDocument };
+    return { COLUMNS, SECTIONS, totalLabel, describeFilters, parseNumIngreso, compareNumIngreso, sortByNumIngreso, groupBySection,
+        describeDateRangeFilters, buildDateRangePrintHtml, buildSectionHtml, buildPrintHtml, wrapPrintDocument };
 });

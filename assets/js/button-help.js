@@ -92,6 +92,7 @@
         operatorDocAlertsExportBtn: ['Descarga la lista en Excel.', ''],
         dateRangeSearchBtn: ['Busca los registros ingresados entre las fechas elegidas.', ''],
         dateRangeExportBtn: ['Descarga en Excel los registros encontrados.', ''],
+        dateRangePrintBtn: ['Imprime todos los registros encontrados, ordenados por número de ingreso.', ''],
         dateRangeAcceptBtn: ['Carga en el formulario el registro seleccionado.', ''],
         dateRangeFirstBtn: ['Primera página.', ''],
         dateRangePrevBtn: ['Página anterior.', ''],

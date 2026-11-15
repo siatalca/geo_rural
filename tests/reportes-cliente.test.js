@@ -370,7 +370,9 @@ test('validación ingresos: exige resumenFacturacion con las 3 etiquetas y factu
 
 test('validación de los otros reportes: no exige facturación', () => {
     for (const tipo of ['certificadas', 'fuera-plazo', 'hallazgos']) {
-        const sinCampos = payload(tipo, [row({ facturacion: undefined, facturaNumero: undefined, facturaMonto: undefined })]);
+        // fuera-plazo trae además el motivo de cada carpeta (M-031).
+        const motivo = tipo === 'fuera-plazo' ? { motivo: 'INGRESO' } : {};
+        const sinCampos = payload(tipo, [row({ facturacion: undefined, facturaNumero: undefined, facturaMonto: undefined, ...motivo })]);
         assert.equal(reportes.validateResponse(sinCampos, tipo).ok, true, tipo);
         for (const column of ['FACTURACIÓN', 'NRO FACTURA', 'MONTO A FACTURAR']) {
             assert.equal(reportes.columnsFor(tipo).includes(column), false, `${tipo} ${column}`);
@@ -378,8 +380,9 @@ test('validación de los otros reportes: no exige facturación', () => {
     }
 });
 
-test('los otros reportes siguen en una sola tabla, sin grupos ni facturación', () => {
-    for (const tipo of ['certificadas', 'fuera-plazo', 'hallazgos']) {
+test('certificadas y hallazgos siguen en una sola tabla, sin grupos ni facturación', () => {
+    // fuera-plazo salió de esta lista: desde M-031 se imprime en 2 tablas por motivo (prueba propia más abajo).
+    for (const tipo of ['certificadas', 'hallazgos']) {
         const html = reportes.buildPrintHtml({ tipo, data: payload(tipo, [row(), row({ estadoCarpeta: 'Observada' })]),
             printedAt: 'x', estados: CATALOGO }, escapeHtml);
         assert.equal((html.match(/<table>/g) || []).length, 1, tipo);
@@ -453,4 +456,78 @@ test('ventana: ingresos sin resumenFacturacion se muestra como error de formato,
     assert.match(el('reporteMessage').textContent, /no tiene el formato esperado \(resumen de facturación\)/);
     assert.equal(el('reporteResultado').classList.contains('hidden'), true);
     assert.equal(el('reporteImprimirBtn').disabled, true);
+});
+
+// --- M-031: hojas impresas ordenadas por NRO INGRESO y fuera de plazo por motivo ---
+
+const numsIn = (html) => [...html.matchAll(/<tr><td>([^<]*)<\/td>/g)].map((m) => m[1]);
+
+test('certificadas y hallazgos impresos: una tabla ordenada por NRO INGRESO (año y correlativo), raros al final', () => {
+    for (const tipo of ['certificadas', 'hallazgos']) {
+        const registros = ['10-2026', 'X-1', '2-2026', '89-2025', '1-2026', '100-2026'].map((numIngreso) => row({ numIngreso }));
+        const data = payload(tipo, registros);
+        const html = reportes.buildPrintHtml({ tipo, data, printedAt: 'x' }, escapeHtml);
+        assert.equal((html.match(/<table>/g) || []).length, 1, tipo);
+        assert.deepEqual(numsIn(html), ['89-2025', '1-2026', '2-2026', '10-2026', '100-2026', 'X-1'], tipo);
+        assert.equal(data.registros[0].numIngreso, '10-2026', `${tipo}: no reordena la ventana`);
+        assert.match(html, /Total: 6 carpetas/);
+    }
+});
+
+test('ingresos impreso: cada grupo de estado va ordenado por NRO INGRESO', () => {
+    const html = ingresosHtml([
+        row({ numIngreso: '12-2026', estadoCarpeta: 'Observada' }), row({ numIngreso: '3-2026', estadoCarpeta: 'Certificada' }),
+        row({ numIngreso: '2-2026', estadoCarpeta: 'Observada' }), row({ numIngreso: '50-2025', estadoCarpeta: 'Certificada' }),
+        row({ numIngreso: '1-2026', estadoCarpeta: 'Observada' })]);
+    const cert = html.slice(html.indexOf('<h2>Certificada</h2>'), html.indexOf('<h2>Observada</h2>'));
+    const obs = html.slice(html.indexOf('<h2>Observada</h2>'), html.indexOf('<h2>En revisión</h2>'));
+    assert.deepEqual(numsIn(cert), ['50-2025', '3-2026']);
+    assert.deepEqual(numsIn(obs), ['1-2026', '2-2026', '12-2026']);
+    assert.match(html, /TOTAL GENERAL: 5 carpetas/);
+});
+
+function fueraPlazo(registros) {
+    const resumen = reportes.FUERA_PLAZO_MOTIVOS.map((etiqueta) => ({ etiqueta,
+        cantidad: registros.filter((item) => item.motivo === etiqueta).length }));
+    return payload('fuera-plazo', registros, { resumen });
+}
+
+test('fuera de plazo impreso: 2 tablas (INGRESO y REINGRESO SUBSANADA) por motivo, ordenadas, con subtotales y TOTAL GENERAL', () => {
+    const data = fueraPlazo([
+        row({ numIngreso: '10-2026', motivo: 'INGRESO' }), row({ numIngreso: '7-2026', motivo: 'REINGRESO SUBSANADA' }),
+        row({ numIngreso: '2-2026', motivo: 'INGRESO' }), row({ numIngreso: '30-2025', motivo: 'REINGRESO SUBSANADA' }),
+        row({ numIngreso: '99-2025', motivo: 'INGRESO' })]);
+    assert.equal(reportes.validateResponse(data, 'fuera-plazo').ok, true);
+    const html = reportes.buildPrintHtml({ tipo: 'fuera-plazo', data, printedAt: 'x' }, escapeHtml);
+    assert.deepEqual(titles(html), ['INGRESO', 'REINGRESO SUBSANADA']);
+    assert.equal((html.match(/<table>/g) || []).length, 2);
+    const [ingreso, reingreso] = html.split('<h2>REINGRESO SUBSANADA</h2>');
+    assert.deepEqual(numsIn(ingreso), ['99-2025', '2-2026', '10-2026']);
+    assert.deepEqual(numsIn(reingreso), ['30-2025', '7-2026']);
+    assert.deepEqual(subtotals(html), ['Subtotal INGRESO: 3 carpetas', 'Subtotal REINGRESO SUBSANADA: 2 carpetas']);
+    assert.match(html, /<p class="total-general">TOTAL GENERAL: 5 carpetas<\/p>/);
+    assert.match(html, /Total: 5 carpetas/);
+    assert.match(html, /Resumen: INGRESO: 3 \| REINGRESO SUBSANADA: 2/);
+    for (const column of reportes.columnsFor('fuera-plazo')) {
+        assert.equal(html.split(`<th>${column}</th>`).length - 1, 2, `${column} en cada tabla`);
+    }
+    assert.doesNotMatch(html, /Facturación|7\.5pt/);
+});
+
+test('fuera de plazo impreso: un motivo sin carpetas igual muestra su tabla con «Sin carpetas» y subtotal 0', () => {
+    const data = fueraPlazo([row({ numIngreso: '1-2026', motivo: 'REINGRESO SUBSANADA' })]);
+    const html = reportes.buildPrintHtml({ tipo: 'fuera-plazo', data, printedAt: 'x' }, escapeHtml);
+    assert.deepEqual(subtotals(html), ['Subtotal INGRESO: 0 carpetas', 'Subtotal REINGRESO SUBSANADA: 1 carpeta']);
+    assert.ok(html.includes(`<td colspan="${reportes.columnsFor('fuera-plazo').length}" class="empty">Sin carpetas</td>`));
+    assert.match(html, /TOTAL GENERAL: 1 carpeta</);
+});
+
+test('validación fuera de plazo: cada carpeta debe traer motivo INGRESO o REINGRESO SUBSANADA', () => {
+    for (const motivo of [undefined, '', 'ingreso', 'OTRO', null]) {
+        const result = reportes.validateResponse(fueraPlazo([row({ motivo })]), 'fuera-plazo');
+        assert.equal(result.ok, false, String(motivo));
+        assert.match(result.error, /no tiene el formato esperado \(motivo de la carpeta 1\)/);
+    }
+    // Los otros reportes no piden motivo.
+    assert.equal(reportes.validateResponse(payload('hallazgos'), 'hallazgos').ok, true);
 });

@@ -9903,7 +9903,8 @@ app.get('/api/reportes/:tipo', async (req, res) => {
             total: registros.length,
             resumen,
             ...resumenFacturacion,
-            registros: registros.map(({ motivo, ...item }) => item)
+            // motivo (INGRESO o REINGRESO SUBSANADA) solo existe en fuera-plazo: la hoja impresa se separa por el.
+            registros
         });
     } catch (error) {
         console.error(error);
@@ -10174,7 +10175,6 @@ app.get('/api/registros/buscar-rango-fechas', async (req, res) => {
                 FROM registros
                 WHERE ${where.join(' AND ')}
                 ORDER BY created_at DESC, id DESC
-                LIMIT 300
             `,
             values
         );

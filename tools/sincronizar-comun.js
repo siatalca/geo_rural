@@ -42,6 +42,7 @@ const COMMON_FILES = [
     'tests/reportes-cliente.test.js',
     'tests/estadisticas-cliente.test.js',
     'tests/manifest-app.test.js',
+    'tests/buscar-rango-fechas.test.js',
     'tools/sincronizar-comun.js',
     'docs/CODIGO_COMUN.md'
 ];
