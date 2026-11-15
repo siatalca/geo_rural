@@ -616,6 +616,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         comuna: document.getElementById('comuna'),
         comentario: document.getElementById('comentario'),
         guardarComentarioBtn: document.getElementById('guardarComentarioBtn'),
+        indicadoresGroup: document.getElementById('indicadoresGroup'),
+        indicadorButtons: Array.from(document.querySelectorAll('#indicadoresGroup .indicador-btn')),
         comentarioGroup: document.getElementById('comentarioGroup'),
         comentariosHistoryGroup: document.getElementById('comentariosHistoryGroup'),
         comentariosHistoryMainAnchor: document.getElementById('comentariosHistoryMainAnchor'),
@@ -1436,6 +1438,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (ui.guardarComentarioBtn) {
         ui.guardarComentarioBtn.addEventListener('click', () => void handleGuardarSoloComentario());
     }
+    (ui.indicadorButtons || []).forEach((button) => {
+        button.addEventListener('click', () => void handleRegistrarIndicador(button));
+    });
     const nombreInput = document.getElementById('nombre');
     if (nombreInput) {
         nombreInput.addEventListener('input', () => {
@@ -1965,6 +1970,7 @@ function showAppForUser(user) {
         if (ui.secretariaNoMovementBtn) {
             ui.secretariaNoMovementBtn.classList.toggle('hidden', !canUseNoMovementFollowup(user));
         }
+        setReportsMenuVisibility(user);
         if (!canUseSecretaryFeatures(user)) {
             closeSecretariaInvoicesModal();
             closeSecretariaQuotationModal();
@@ -2056,8 +2062,9 @@ function showAppForUser(user) {
         if (ui.secretariaNoMovementBtn) {
             ui.secretariaNoMovementBtn.classList.add('hidden');
         }
+        setReportsMenuVisibility(user);
         if (canUseNoMovementFollowup(user)) {
-            // Operador y supervisor: el menu muestra solo el seguimiento de carpetas sin movimiento.
+            // Operador y supervisor: el menu muestra el seguimiento de carpetas sin movimiento (y REPORTES el supervisor).
             ui.adminPanel.classList.remove('hidden');
             if (ui.adminPanelTitle) {
                 ui.adminPanelTitle.textContent = isSupervisorUser(user) ? 'MENU SUPERVISOR' : 'MENU OPERADOR';
@@ -2172,6 +2179,7 @@ function showAuthCard(message = '') {
     closeHistoryEditModal();
     closeSecretaryNoMovementModal();
     closeOperatorDocumentAlertsModal();
+    setReportsMenuVisibility(null);
     if (ui.mailSendProgressOverlay) {
         ui.mailSendProgressOverlay.classList.add('hidden');
     }
@@ -2320,6 +2328,19 @@ function canUseNoMovementFollowup(user) {
 // (ADMIN y OPERADOR ven la ventana sin ellos). Rige el rol activo, tambien en «VER COMO».
 function canPrintNoMovementReport(user) {
     return !isGuestUser(user) && (isSupervisorUser(user) || isSuperUser(user) || isSecretaryUser(user));
+}
+
+// Menu REPORTES: supervisor, secretaria y super (mismo permiso que GET /api/reportes). Rige el rol activo, tambien en «VER COMO».
+function canUseReports(user) {
+    return !isGuestUser(user) && (isSupervisorUser(user) || isSuperUser(user) || isSecretaryUser(user));
+}
+
+function setReportsMenuVisibility(user) {
+    const visible = canUseReports(user);
+    document.getElementById('reportesMenu')?.classList.toggle('hidden', !visible);
+    if (!visible) {
+        window.SiaReportesUi?.close();
+    }
 }
 
 // Alerta diaria al entrar: roles que hacen el seguimiento de las carpetas.
@@ -2625,6 +2646,29 @@ function updateQuickCommentButtonState() {
 
     ui.guardarComentarioBtn.classList.toggle('hidden', !canUseFeature);
     ui.guardarComentarioBtn.disabled = !(canUseFeature && hasLoadedRecord && hasTypedComment);
+    updateIndicadorButtonsState();
+}
+
+// Botones «comentario indicador» de la ficha: solo OPERADOR, SECRETARIA y SUPER (mismo permiso que el servidor).
+// Rige el rol activo, tambien en «VER COMO».
+function canUseHistorialIndicadores(user) {
+    // Sin sesion no hay rol: normalizeUserRole tomaria OPERADOR por defecto.
+    return Boolean(user) && !isGuestUser(user) && (isOperatorUser(user) || isSecretaryUser(user) || isSuperUser(user));
+}
+
+let indicadorSaveInProgress = false;
+
+function updateIndicadorButtonsState() {
+    if (!ui || !ui.indicadoresGroup) {
+        return;
+    }
+
+    const canUseFeature = canUseHistorialIndicadores(currentUser);
+    const hasLoadedRecord = Boolean(loadedIngresoOriginal);
+    ui.indicadoresGroup.classList.toggle('hidden', !canUseFeature);
+    (ui.indicadorButtons || []).forEach((button) => {
+        button.disabled = !(canUseFeature && hasLoadedRecord) || indicadorSaveInProgress;
+    });
 }
 
 function hasAnyRegistroMainInputValue() {
@@ -10695,6 +10739,44 @@ async function handleGuardarSoloComentario() {
     }
 }
 
+async function handleRegistrarIndicador(button) {
+    if (indicadorSaveInProgress) {
+        return;
+    }
+    if (!canUseHistorialIndicadores(currentUser)) {
+        setFormMessage(ui.formMessage, 'Tu rol no puede registrar indicadores.', 'error');
+        return;
+    }
+
+    const routeIngreso = String(loadedIngresoOriginal || '').trim();
+    if (!routeIngreso) {
+        setFormMessage(ui.formMessage, 'Debes cargar un registro existente antes de registrar un indicador.', 'error');
+        return;
+    }
+
+    const indicador = String(button?.dataset?.indicador || '').trim();
+    const texto = String(button?.textContent || '').trim();
+    if (!indicador || !window.confirm(`¿Registrar "${texto}" en la carpeta ${routeIngreso}?`)) {
+        return;
+    }
+
+    indicadorSaveInProgress = true;
+    updateIndicadorButtonsState();
+    try {
+        const result = await apiRequest(`/registros/${encodeURIComponent(routeIngreso)}/indicador`, {
+            method: 'POST',
+            body: JSON.stringify({ indicador })
+        });
+        await loadHistoryForIngreso(result?.numIngreso || routeIngreso);
+        setFormMessage(ui.formMessage, result?.message || `Indicador "${texto}" registrado.`, 'success');
+    } catch (error) {
+        setFormMessage(ui.formMessage, error.message, 'error');
+    } finally {
+        indicadorSaveInProgress = false;
+        updateIndicadorButtonsState();
+    }
+}
+
 async function handleEliminarRegistro() {
     if (!canManageAdminCatalogs(currentUser)) {
         setFormMessage(ui.formMessage, 'Solo ADMIN o SUPER pueden eliminar registros.', 'error');
@@ -11360,7 +11442,14 @@ function renderHistory(historial) {
         fechaCell.textContent = formatDateTime(item.fecha);
 
         const comentarioCell = document.createElement('td');
-        comentarioCell.textContent = item.comentario || '';
+        if (item?.indicador) {
+            const indicadorTag = document.createElement('span');
+            indicadorTag.className = 'history-indicador-tag';
+            indicadorTag.textContent = 'INDICADOR';
+            comentarioCell.appendChild(indicadorTag);
+            comentarioCell.appendChild(document.createTextNode(' '));
+        }
+        comentarioCell.appendChild(document.createTextNode(item.comentario || ''));
 
         const usuarioCell = document.createElement('td');
         usuarioCell.textContent = item.usuario || '';

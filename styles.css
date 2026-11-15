@@ -280,6 +280,61 @@ body.layout-secretaria #registroActionsRow {
     min-width: 220px;
 }
 
+/* Botones «comentario indicador» de la ficha del registro. */
+.indicadores-label {
+    font-size: 0.95em;
+    color: var(--brand-dark);
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.indicadores-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.indicador-btn {
+    background: var(--brand-tint-2);
+    color: var(--brand-dark);
+    border: 1px solid var(--brand-border);
+    padding: 8px 12px;
+    font-size: 0.85em;
+}
+
+.indicador-btn:hover:not(:disabled) {
+    background: var(--brand-tint);
+}
+
+.indicador-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.history-indicador-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--brand-border);
+    background: var(--brand-tint);
+    color: var(--brand-dark);
+    font-size: 0.72em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    vertical-align: 1px;
+}
+
+@media (max-width: 480px) {
+    .indicadores-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .indicador-btn {
+        white-space: normal;
+    }
+}
+
 .form-row {
     display: flex;
     gap: 12px;
@@ -755,6 +810,19 @@ button {
 
 .admin-more-item-danger {
     color: #b42318;
+}
+
+.admin-bar-icon-report { --admin-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16'/%3E%3Cpath d='M7 16v-5M12 16V6M17 16v-8'/%3E%3C/svg%3E"); }
+
+/* Menu REPORTES: desplegable bajo su boton, una columna. */
+.reportes-menu-panel {
+    left: 0;
+    right: auto;
+    grid-template-columns: minmax(220px, auto);
+}
+
+.reportes-menu-panel .admin-more-item {
+    white-space: nowrap;
 }
 
 @media (max-width: 760px) {
@@ -1314,6 +1382,61 @@ button {
     gap: 8px;
 }
 
+/* Ventana de reportes */
+.reporte-modal-card {
+    width: min(1180px, 100%);
+}
+
+.reporte-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 4px 0 6px;
+}
+
+.date-range-form .reporte-actions button {
+    width: auto;
+    min-width: 150px;
+}
+
+.reporte-actions button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.reporte-resumen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 8px;
+    padding: 0;
+    list-style: none;
+}
+
+.reporte-resumen li {
+    padding: 3px 9px;
+    border: 1px solid var(--brand-border);
+    border-radius: 999px;
+    background: var(--brand-tint-2);
+    color: var(--brand-dark);
+    font-size: 0.86em;
+}
+
+.reporte-table-wrapper {
+    max-height: 48vh;
+    overflow: auto;
+}
+
+.reporte-table-wrapper td {
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    .reporte-actions button {
+        flex: 1;
+    }
+}
+
 .secretary-no-movement-print-actions button:disabled {
     opacity: 0.55;
     cursor: not-allowed;
@@ -1722,6 +1845,14 @@ button {
     background: var(--brand-tint);
     color: var(--brand-dark);
     box-shadow: inset 0 -2px 0 var(--brand-accent);
+}
+
+/* Celular: las tres pestañas del supervisor caben en una fila (la más larga pasa a dos líneas). */
+@media (max-width: 480px) {
+    .role-tab {
+        min-width: 0;
+        padding: 8px 10px;
+    }
 }
 
 .role-panel .header {

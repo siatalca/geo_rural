@@ -10,7 +10,7 @@
     <script src="../../assets/js/button-help.js?v=20261017" defer></script>
     <link rel="stylesheet" href="../../assets/css/brand.css?v=20261017-03">
     <link rel="icon" type="image/svg+xml" href="../../assets/img/favicon.svg">
-    <link rel="stylesheet" href="../../styles.css?v=20261022-03">
+    <link rel="stylesheet" href="../../styles.css?v=20261115-02">
     <link rel="stylesheet" href="../../assets/site/site.css?v=20261017-02">
 </head>
 <body>
@@ -37,6 +37,15 @@
                     <button type="button" id="secretariaViewInvoicesBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-invoice" aria-hidden="true"></span>Facturas</button>
                     <button type="button" id="secretariaEditUtmBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-utm" aria-hidden="true"></span>UTM</button>
                     <button type="button" id="secretariaNoMovementBtn" class="admin-bar-btn hidden"><span class="admin-bar-icon admin-bar-icon-clock" aria-hidden="true"></span>Sin movimiento</button>
+                    <div class="admin-more reportes-menu hidden" id="reportesMenu">
+                        <button type="button" id="reportesMenuBtn" class="admin-bar-btn admin-more-btn" aria-expanded="false" aria-controls="reportesMenuPanel"><span class="admin-bar-icon admin-bar-icon-report" aria-hidden="true"></span>Reportes<span class="admin-more-caret" aria-hidden="true"></span></button>
+                        <div id="reportesMenuPanel" class="admin-more-panel reportes-menu-panel hidden">
+                            <button type="button" class="admin-more-item" data-reporte="ingresos">DETALLE DE INGRESOS</button>
+                            <button type="button" class="admin-more-item" data-reporte="certificadas">CERTIFICADAS POR EL SAG</button>
+                            <button type="button" class="admin-more-item" data-reporte="fuera-plazo">PENDIENTES FUERA DE PLAZO</button>
+                            <button type="button" class="admin-more-item" data-reporte="hallazgos">CON HALLAZGOS</button>
+                        </div>
+                    </div>
                 </div>
                 <span class="admin-bar-sep" id="adminBarSep" aria-hidden="true"></span>
                 <div class="admin-year-toggle" id="adminYearToggle" role="group" aria-label="Año de los ingresos">
@@ -513,6 +522,7 @@
         <div id="supervisorTabs" class="role-tabs hidden" role="tablist" aria-label="Secciones del supervisor">
             <button type="button" role="tab" class="role-tab" data-supervisor-tab="resumen" aria-selected="true">RESUMEN</button>
             <button type="button" role="tab" class="role-tab" data-supervisor-tab="registros" aria-selected="false">REGISTROS</button>
+            <button type="button" role="tab" class="role-tab" data-supervisor-tab="estadisticas" aria-selected="false">ESTADÍSTICAS DE CARPETAS</button>
         </div>
 
         <section id="supervisorDashboard" class="registro-form role-panel viz-root hidden" aria-labelledby="supervisorDashboardTitle">
@@ -573,6 +583,62 @@
                     </table>
                 </div>
             </section>
+        </section>
+
+        <!-- Pestaña ESTADÍSTICAS DE CARPETAS del supervisor: mismos datos que el menú REPORTES. assets/js/rol-paneles.js -->
+        <section id="supervisorEstadisticas" class="registro-form role-panel viz-root hidden" aria-labelledby="supervisorEstadisticasTitle">
+            <div class="header">
+                <div>
+                    <h2 id="supervisorEstadisticasTitle">ESTADÍSTICAS DE CARPETAS</h2>
+                    <span>Ingresos, certificaciones, plazos y hallazgos con las mismas reglas de los reportes</span>
+                </div>
+                <img src="../../assets/img/logo.svg" alt="Logo" data-site-logo class="logo">
+            </div>
+            <form id="estadisticasFilterForm" class="date-range-form" autocomplete="off" novalidate>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="estadisticasDesde">DESDE</label>
+                        <input type="date" id="estadisticasDesde" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="estadisticasHasta">HASTA</label>
+                        <input type="date" id="estadisticasHasta" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="estadisticasRegion">REGIÓN</label>
+                        <select id="estadisticasRegion">
+                            <option value="">TODAS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="estadisticasSucursal">SEDE</label>
+                        <select id="estadisticasSucursal">
+                            <option value="">TODAS</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="reporte-actions">
+                    <button type="submit" id="estadisticasActualizarBtn" class="buscar">ACTUALIZAR</button>
+                </div>
+            </form>
+            <p id="estadisticasMessage" class="form-message" role="status" aria-live="polite"></p>
+            <div id="estadisticasResultado" class="hidden">
+                <div class="kpi-grid" id="estadisticasKpis"></div>
+                <div class="viz-grid">
+                    <figure class="viz-card viz-wide">
+                        <figcaption><strong>Ingresadas y certificadas</strong><span id="estadisticasNotaPeriodo">Por mes, según la fecha de ingreso y la de certificación</span></figcaption>
+                        <div class="viz-legend"><span><i class="sw viz-s1"></i>Ingresadas</span><span><i class="sw viz-s2"></i>Certificadas</span></div>
+                        <div class="viz-chart" id="estadisticasChartPeriodo"></div>
+                        <p class="helper-text" id="estadisticasResumenPeriodo"></p>
+                    </figure>
+                    <figure class="viz-card viz-wide">
+                        <figcaption><strong>Fuera de plazo y con hallazgos por sede</strong><span>Sede de ingreso de cada carpeta</span></figcaption>
+                        <div class="viz-legend"><span><i class="sw viz-s1"></i>Fuera de plazo</span><span><i class="sw viz-s2"></i>Con hallazgos</span></div>
+                        <div class="viz-chart" id="estadisticasChartSedes"></div>
+                        <p class="helper-text" id="estadisticasResumenSedes"></p>
+                    </figure>
+                </div>
+            </div>
         </section>
 
         <!-- Panel del Contador. assets/js/rol-paneles.js -->
@@ -794,6 +860,17 @@
                         <textarea id="comentario" name="comentario" rows="4"></textarea>
                         <div class="comment-action-row">
                             <button type="button" id="guardarComentarioBtn" class="guardar">AGREGAR COMENTARIO</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group hidden" id="indicadoresGroup" role="group" aria-labelledby="indicadoresLabel">
+                        <span class="indicadores-label" id="indicadoresLabel">INDICADORES</span>
+                        <div class="indicadores-row">
+                            <button type="button" class="indicador-btn" data-indicador="retira_subsanar" title="Registra en el historial que la carpeta se retira para subsanar observaciones.">RETIRA PARA SUBSANAR</button>
+                            <button type="button" class="indicador-btn" data-indicador="reingreso_subsanado" title="Registra en el historial que la carpeta reingresa con las observaciones subsanadas.">REINGRESO SUBSANADO</button>
+                            <button type="button" class="indicador-btn" data-indicador="sale_sag" title="Registra en el historial que la carpeta sale al SAG.">SALE AL SAG</button>
+                            <button type="button" class="indicador-btn" data-indicador="regresa_sag" title="Registra en el historial que la carpeta regresa del SAG.">REGRESA DEL SAG</button>
+                            <button type="button" class="indicador-btn" data-indicador="notificacion_hallazgos" title="Registra en el historial la notificación de hallazgos de la carpeta.">NOTIFICACIÓN DE HALLAZGOS</button>
                         </div>
                     </div>
 
@@ -1360,6 +1437,55 @@
         </div>
     </div>
 
+    <div id="reporteOverlay" class="modal-overlay hidden">
+        <div class="modal-card reporte-modal-card" role="dialog" aria-modal="true" aria-labelledby="reporteTitle" aria-describedby="reporteDescription">
+            <h3 id="reporteTitle">REPORTE</h3>
+            <p id="reporteDescription" class="helper-text"></p>
+            <form id="reporteFilterForm" class="date-range-form" autocomplete="off" novalidate>
+                <div class="form-row reporte-filter-row">
+                    <div class="form-group">
+                        <label for="reporteDesde">DESDE</label>
+                        <input type="date" id="reporteDesde" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reporteHasta">HASTA</label>
+                        <input type="date" id="reporteHasta" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reporteRegion">REGIÓN</label>
+                        <select id="reporteRegion">
+                            <option value="">TODAS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="reporteSucursal">SEDE</label>
+                        <select id="reporteSucursal">
+                            <option value="">TODAS</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="reporte-actions">
+                    <button type="submit" id="reporteBuscarBtn" class="buscar">BUSCAR</button>
+                    <button type="button" id="reporteImprimirBtn" class="buscar" disabled>IMPRIMIR</button>
+                </div>
+            </form>
+            <p id="reporteMessage" class="form-message" role="status" aria-live="polite"></p>
+            <div id="reporteResultado" class="reporte-resultado hidden">
+                <p id="reporteTotal" class="secretary-no-movement-total">Total: 0 carpetas</p>
+                <ul id="reporteResumen" class="reporte-resumen" aria-label="Resumen"></ul>
+                <div class="history-wrapper reporte-table-wrapper">
+                    <table class="history-table">
+                        <thead><tr id="reporteHead"></tr></thead>
+                        <tbody id="reporteBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="invoice-modal-actions">
+                <button type="button" id="reporteCerrarBtn" class="limpiar">CERRAR</button>
+            </div>
+        </div>
+    </div>
+
     <div id="operatorDocAlertsOverlay" class="modal-overlay hidden">
         <div class="modal-card operator-doc-alerts-modal-card" role="dialog" aria-modal="true" aria-labelledby="operatorDocAlertsTitle">
             <h3 id="operatorDocAlertsTitle">CARPETAS POR ESTADO SAG</h3>
@@ -1576,8 +1702,11 @@
     </script>
     <script src="../../assets/js/chatbot.js?v=20260426-02"></script>
     <script src="../../assets/js/role-guide.js?v=20261015"></script>
-    <script src="../../assets/js/sin-movimiento-impresion.js?v=20261114-01"></script>
-    <script src="../../script.js?v=20261114-01"></script>
-    <script src="../../assets/js/rol-paneles.js?v=20261022-03"></script>
+    <script src="../../assets/js/sin-movimiento-impresion.js?v=20261115-01"></script>
+    <script src="../../assets/js/reportes-impresion.js?v=20261115-02"></script>
+    <script src="../../assets/js/estadisticas-carpetas.js?v=20261115-01"></script>
+    <script src="../../script.js?v=20261115-01"></script>
+    <script src="../../assets/js/rol-paneles.js?v=20261115-01"></script>
+    <script src="../../assets/js/reportes.js?v=20261115-02"></script>
 </body>
 </html>

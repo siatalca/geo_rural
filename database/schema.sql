@@ -75,10 +75,12 @@ CREATE TABLE IF NOT EXISTS registro_historial (
     comentario TEXT NOT NULL,
     usuario_nombre VARCHAR(120) NOT NULL,
     sucursal VARCHAR(120) NULL,
+    indicador VARCHAR(30) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_historial_registro_fecha (registro_id, created_at),
     KEY idx_historial_num_ingreso (num_ingreso),
+    KEY idx_historial_indicador_fecha (indicador, created_at),
     CONSTRAINT fk_historial_registro_id FOREIGN KEY (registro_id) REFERENCES registros(id)
         ON DELETE CASCADE
 );

@@ -58,6 +58,18 @@
 <p class="subtotal">Subtotal ${esc(section.name)}: ${esc(totalLabel(section.rows.length))}</p>`;
         }).join('\n');
 
+        return wrapPrintDocument(title, `<h1>${esc(title)}</h1>
+<p class="meta">Fecha de impresion: ${esc(printedAt)}</p>
+<p class="meta">Filtros: ${esc(describeFilters(filters))}</p>
+<p class="total">Total: ${esc(totalLabel(total))}</p>
+${sectionHtml}
+<p class="total-general">TOTAL GENERAL: ${esc(totalLabel(total))}</p>`, escapeHtml);
+    }
+
+    // Documento carta horizontal con encabezado de tabla repetido en cada hoja. bodyHtml ya viene escapado.
+    // extraCss agrega reglas propias de otra hoja (por ejemplo, los reportes) sin cambiar esta.
+    function wrapPrintDocument(title, bodyHtml, escapeHtml, extraCss = '') {
+        const esc = (value) => escapeHtml(String(value ?? ''));
         return `<!doctype html>
 <html lang="es">
 <head>
@@ -80,18 +92,13 @@
     .subtotal { font-weight: 700; margin: 4pt 0 0; text-align: right; }
     .total-general { font-weight: 700; font-size: 10.5pt; margin: 14pt 0 0; text-align: right; border-top: 2px solid #000; padding-top: 4pt; }
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-</style>
+${extraCss ? `${extraCss}\n` : ''}</style>
 </head>
 <body>
-<h1>${esc(title)}</h1>
-<p class="meta">Fecha de impresion: ${esc(printedAt)}</p>
-<p class="meta">Filtros: ${esc(describeFilters(filters))}</p>
-<p class="total">Total: ${esc(totalLabel(total))}</p>
-${sectionHtml}
-<p class="total-general">TOTAL GENERAL: ${esc(totalLabel(total))}</p>
+${bodyHtml}
 </body>
 </html>`;
     }
 
-    return { COLUMNS, totalLabel, describeFilters, groupBySection, buildPrintHtml };
+    return { COLUMNS, totalLabel, describeFilters, groupBySection, buildPrintHtml, wrapPrintDocument };
 });

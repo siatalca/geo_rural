@@ -21,6 +21,9 @@ const COMMON_FILES = [
     'assets/js/button-help.js',
     'assets/js/rol-paneles.js',
     'assets/js/sin-movimiento-impresion.js',
+    'assets/js/reportes-impresion.js',
+    'assets/js/reportes.js',
+    'assets/js/estadisticas-carpetas.js',
     'assets/js/pages/seguimiento.js',
     'assets/js/pages/mantenimiento.js',
     'assets/css/brand.css',
@@ -32,6 +35,11 @@ const COMMON_FILES = [
     'tests/facturas-roles.test.js',
     'tests/descuento-factura.test.js',
     'tests/sin-movimiento-impresion.test.js',
+    'tests/indicadores.test.js',
+    'tests/indicadores-cliente.test.js',
+    'tests/reportes.test.js',
+    'tests/reportes-cliente.test.js',
+    'tests/estadisticas-cliente.test.js',
     'tools/sincronizar-comun.js',
     'docs/CODIGO_COMUN.md'
 ];

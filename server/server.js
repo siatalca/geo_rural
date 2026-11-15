@@ -1990,6 +1990,20 @@ function isReingresoSubsanadaComment(value) {
     return /reingres/.test(text) && /subsanad/.test(text);
 }
 
+// Comentarios indicadores: texto fijo por clave, guardado tal cual en el historial para contar fechas en reportes.
+// Los textos van con la misma capitalizacion que deja formatComentarioTitleCase en los comentarios escritos a mano.
+const HISTORIAL_INDICADORES = Object.freeze({
+    retira_subsanar: 'Retira Carpeta Para Subsanar Observaciones',
+    reingreso_subsanado: 'Reingresa Carpeta Con Observaciones Subsanadas',
+    sale_sag: 'Sale Al Sag',
+    regresa_sag: 'Regresa Del Sag',
+    notificacion_hallazgos: 'Notificacion De Hallazgos'
+});
+
+function canUseHistorialIndicadores(user) {
+    return [ROLE_OPERADOR, ROLE_SECRETARIA, ROLE_SUPER].includes(normalizeUserRole(user?.role, ROLE_OPERADOR));
+}
+
 function canUseInvoiceWorkflow(user) {
     return isOperatorUser(user) || canUseSecretaryFeatures(user);
 }
@@ -2417,6 +2431,7 @@ function toHistoryRow(row) {
         accion: normalizeText(row.accion || ''),
         fecha: createdAt,
         comentario: row.comentario,
+        indicador: row.indicador || null,
         usuario: usuario || 'Sin usuario'
     };
 }
@@ -4538,6 +4553,14 @@ async function ensureHistoryEditColumns() {
     await ensureColumn('registro_historial', 'editado_at', '`editado_at` DATETIME NULL AFTER editado_por_sucursal');
 }
 
+async function ensureHistoryIndicadorColumn() {
+    await ensureColumn('registro_historial', 'indicador', '`indicador` VARCHAR(30) NULL AFTER editado_at');
+    const [indexes] = await pool.query("SHOW INDEX FROM registro_historial WHERE Key_name = 'idx_historial_indicador_fecha'");
+    if (indexes.length === 0) {
+        await pool.query('ALTER TABLE registro_historial ADD INDEX idx_historial_indicador_fecha (indicador, created_at)');
+    }
+}
+
 async function ensureUsersRoleColumn() {
     await ensureColumn('usuarios', 'role', "`role` VARCHAR(20) NOT NULL DEFAULT 'OPERADOR' AFTER sucursal");
     await pool.query("UPDATE usuarios SET role = UPPER(role)");
@@ -4684,10 +4707,12 @@ async function createHistoryTable() {
             editado_por VARCHAR(120) NULL,
             editado_por_sucursal VARCHAR(120) NULL,
             editado_at DATETIME NULL,
+            indicador VARCHAR(30) NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY idx_historial_registro_fecha (registro_id, created_at),
             KEY idx_historial_num_ingreso (num_ingreso),
+            KEY idx_historial_indicador_fecha (indicador, created_at),
             CONSTRAINT fk_historial_registro_id FOREIGN KEY (registro_id) REFERENCES registros(id)
                 ON DELETE CASCADE
         )
@@ -5280,6 +5305,8 @@ async function reserveNextIngreso(connection, anio) {
 }
 
 async function insertHistoryEntry(executor, historyPayload) {
+    // indicador solo se escribe cuando viene (comentarios indicadores); el resto del historial no lo toca.
+    const withIndicador = Boolean(historyPayload.indicador);
     await executor.execute(
         `
             INSERT INTO registro_historial (
@@ -5288,8 +5315,8 @@ async function insertHistoryEntry(executor, historyPayload) {
                 accion,
                 comentario,
                 usuario_nombre,
-                sucursal
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                sucursal${withIndicador ? ',\n                indicador' : ''}
+            ) VALUES (?, ?, ?, ?, ?, ?${withIndicador ? ', ?' : ''})
         `,
         [
             historyPayload.registroId,
@@ -5297,26 +5324,17 @@ async function insertHistoryEntry(executor, historyPayload) {
             historyPayload.accion,
             historyPayload.comentario,
             historyPayload.usuarioNombre,
-            historyPayload.sucursal || null
+            historyPayload.sucursal || null,
+            ...(withIndicador ? [historyPayload.indicador] : [])
         ]
     );
 }
 
+// SELECT * para leer indicador cuando la columna ya existe; toHistoryRow decide que campos salen.
 async function fetchHistoryByRegistroId(registroId) {
     const [rows] = await pool.execute(
         `
-            SELECT
-                id,
-                num_ingreso,
-                accion,
-                created_at,
-                comentario,
-                usuario_nombre,
-                sucursal,
-                editado,
-                editado_por,
-                editado_por_sucursal,
-                editado_at
+            SELECT *
             FROM registro_historial
             WHERE registro_id = ?
             ORDER BY created_at DESC,
@@ -5774,6 +5792,7 @@ async function initDatabase() {
         await createBranchesTable();
         await createHistoryTable();
         await ensureHistoryEditColumns();
+        await ensureHistoryIndicadorColumn();
         await createFacturaSolicitudesTable();
         await createRegistroSolicitudTable();
         await ensureColumnMinLength('registro_solicitud', 'inscripcion_anio', 20, '`inscripcion_anio` VARCHAR(20) NULL');
@@ -9023,6 +9042,29 @@ app.post('/api/registros/:numIngreso/comentario', requireWriteAccess, async (req
         return res.status(400).json({ message: 'COMENTARIO excede el maximo permitido de 4000 caracteres.' });
     }
 
+    return saveRegistroComentario(req, res, routeIngreso, { comentario });
+});
+
+app.post('/api/registros/:numIngreso/indicador', requireWriteAccess, async (req, res) => {
+    const routeIngreso = normalizeText(decodeURIComponent(req.params.numIngreso));
+    const parsedIngreso = parseNumIngreso(routeIngreso);
+    if (!parsedIngreso) {
+        return res.status(400).json({ message: 'NRO INGRESO invalido.' });
+    }
+
+    const indicador = typeof req.body.indicador === 'string' ? normalizeText(req.body.indicador) : '';
+    if (!Object.prototype.hasOwnProperty.call(HISTORIAL_INDICADORES, indicador)) {
+        return res.status(400).json({ message: 'Comentario indicador invalido.' });
+    }
+    if (!canUseHistorialIndicadores(req.authUser)) {
+        return res.status(403).json({ message: 'Tu rol no puede registrar comentarios indicadores.' });
+    }
+
+    return saveRegistroComentario(req, res, routeIngreso, { comentario: HISTORIAL_INDICADORES[indicador], indicador });
+});
+
+// Guarda un comentario en el registro y en su historial (comentario escrito a mano o comentario indicador).
+async function saveRegistroComentario(req, res, routeIngreso, { comentario, indicador = null }) {
     const userHasBackofficeAccess = hasBackofficeRegistroAccess(req.authUser);
     const userBranch = normalizeText(req.authUser.sucursal) || null;
     if (!userHasBackofficeAccess && !userBranch) {
@@ -9056,6 +9098,24 @@ app.post('/api/registros/:numIngreso/comentario', requireWriteAccess, async (req
             return res.status(404).json({ message: 'No existe ese registro para guardar comentario.' });
         }
 
+        // Doble clic: el mismo indicador no se repite si ya es el ultimo movimiento del registro.
+        if (indicador) {
+            const [lastRows] = await connection.execute(
+                `
+                    SELECT indicador
+                    FROM registro_historial
+                    WHERE registro_id = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 1
+                `,
+                [existingRows[0].id]
+            );
+            if (lastRows.length && lastRows[0].indicador === indicador) {
+                await connection.rollback();
+                return res.status(409).json({ message: `El ultimo movimiento ya es "${comentario}"; no se registro de nuevo.` });
+            }
+        }
+
         await connection.execute(
             `
                 UPDATE registros
@@ -9075,10 +9135,19 @@ app.post('/api/registros/:numIngreso/comentario', requireWriteAccess, async (req
             accion: 'COMENTARIO',
             comentario,
             usuarioNombre: userName,
-            sucursal: userBranch
+            sucursal: userBranch,
+            indicador
         });
 
         await connection.commit();
+        if (indicador) {
+            return res.status(201).json({
+                message: 'Comentario indicador guardado correctamente.',
+                numIngreso: existingRows[0].num_ingreso,
+                indicador,
+                comentario
+            });
+        }
         return res.json({
             message: 'Comentario guardado correctamente.',
             numIngreso: existingRows[0].num_ingreso
@@ -9090,7 +9159,7 @@ app.post('/api/registros/:numIngreso/comentario', requireWriteAccess, async (req
     } finally {
         connection.release();
     }
-});
+}
 
 app.put('/api/registros/:numIngreso/historial/:historyId', requireWriteAccess, requireAdmin, async (req, res) => {
     const routeIngreso = normalizeText(decodeURIComponent(req.params.numIngreso));
@@ -9417,6 +9486,73 @@ app.get('/api/registros/sucursales-disponibles', async (req, res) => {
     }
 });
 
+// Regla de carpetas sin movimiento, compartida por el seguimiento y el reporte fuera de plazo.
+// El plazo corre desde el ultimo movimiento cuando este es el ingreso (unico comentario)
+// o un "reingreso de carpeta subsanada"; cualquier movimiento posterior lo detiene.
+// extraWhere/extraValues agregan filtros (rango de desdeAt, region, sucursal) sin cambiar la regla.
+async function fetchNoMovementRows({ thresholdDays, enPlazo = false, registroScope, extraWhere = [], extraValues = [] }) {
+    const where = [
+        enPlazo
+            ? 'hstats.ultimo_movimiento_at > DATE_SUB(NOW(), INTERVAL ? DAY)'
+            : 'hstats.ultimo_movimiento_at <= DATE_SUB(NOW(), INTERVAL ? DAY)',
+        "(hstats.total_movimientos = 1 OR LOWER(ultimo.comentario) LIKE '%subsanad%')"
+    ];
+    const values = [thresholdDays];
+    if (registroScope.clause) {
+        where.push(registroScope.clause);
+        values.push(...registroScope.params);
+    }
+    where.push(...extraWhere);
+    values.push(...extraValues);
+
+    const [rows] = await pool.execute(
+        `
+            SELECT
+                r.num_ingreso,
+                r.nombre,
+                r.rut,
+                r.region,
+                r.comuna,
+                r.num_lotes,
+                r.estado_carpeta,
+                COALESCE(r.updated_by_sucursal, r.created_by_sucursal, '') AS sucursal,
+                r.created_by_sucursal AS sede_ingreso,
+                hstats.primer_movimiento_at AS created_at,
+                hstats.ultimo_movimiento_at,
+                hstats.total_movimientos,
+                ultimo.comentario AS ultimo_comentario,
+                TIMESTAMPDIFF(DAY, hstats.ultimo_movimiento_at, NOW()) AS dias_sin_movimiento
+            FROM registros r
+            INNER JOIN (
+                SELECT
+                    registro_id,
+                    COUNT(*) AS total_movimientos,
+                    MIN(created_at) AS primer_movimiento_at,
+                    MAX(created_at) AS ultimo_movimiento_at
+                FROM registro_historial
+                GROUP BY registro_id
+            ) hstats
+                ON hstats.registro_id = r.id
+            INNER JOIN registro_historial ultimo
+                ON ultimo.id = (
+                    SELECT h2.id FROM registro_historial h2
+                    WHERE h2.registro_id = r.id
+                    ORDER BY h2.created_at DESC, h2.id DESC
+                    LIMIT 1
+                )
+            WHERE ${where.join(' AND ')}
+            ORDER BY dias_sin_movimiento DESC, hstats.ultimo_movimiento_at ASC, r.id ASC
+        `,
+        values
+    );
+
+    return rows.filter((row) => Number(row.total_movimientos) <= 1 || isReingresoSubsanadaComment(row.ultimo_comentario));
+}
+
+function getNoMovementMotivo(row) {
+    return Number(row.total_movimientos) > 1 ? 'REINGRESO SUBSANADA' : 'INGRESO';
+}
+
 app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
     try {
         if (!canUseNoMovementFollowup(req.authUser)) {
@@ -9432,80 +9568,22 @@ app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
         const thresholdDays = Math.max(1, Math.min(requestedDays, 365));
         // alcance=en-plazo lista el complemento: las mismas carpetas que aun no cumplen el plazo.
         const enPlazo = req.query.alcance === 'en-plazo';
-
-        // El plazo corre desde el ultimo movimiento cuando este es el ingreso (unico comentario)
-        // o un "reingreso de carpeta subsanada"; cualquier movimiento posterior lo detiene.
-        const where = [
-            enPlazo
-                ? 'hstats.ultimo_movimiento_at > DATE_SUB(NOW(), INTERVAL ? DAY)'
-                : 'hstats.ultimo_movimiento_at <= DATE_SUB(NOW(), INTERVAL ? DAY)',
-            "(hstats.total_movimientos = 1 OR LOWER(ultimo.comentario) LIKE '%subsanad%')"
-        ];
-        const values = [thresholdDays];
-        if (registroScope.clause) {
-            where.push(registroScope.clause);
-            values.push(...registroScope.params);
-        }
-
-        const [rows] = await pool.execute(
-            `
-                SELECT
-                    r.num_ingreso,
-                    r.nombre,
-                    r.rut,
-                    r.region,
-                    r.comuna,
-                    COALESCE(r.updated_by_sucursal, r.created_by_sucursal, '') AS sucursal,
-                    hstats.primer_movimiento_at AS created_at,
-                    hstats.ultimo_movimiento_at,
-                    hstats.total_movimientos,
-                    ultimo.comentario AS ultimo_comentario,
-                    TIMESTAMPDIFF(DAY, hstats.ultimo_movimiento_at, NOW()) AS dias_sin_movimiento
-                FROM registros r
-                INNER JOIN (
-                    SELECT
-                        registro_id,
-                        COUNT(*) AS total_movimientos,
-                        MIN(created_at) AS primer_movimiento_at,
-                        MAX(created_at) AS ultimo_movimiento_at
-                    FROM registro_historial
-                    GROUP BY registro_id
-                ) hstats
-                    ON hstats.registro_id = r.id
-                INNER JOIN registro_historial ultimo
-                    ON ultimo.id = (
-                        SELECT h2.id FROM registro_historial h2
-                        WHERE h2.registro_id = r.id
-                        ORDER BY h2.created_at DESC, h2.id DESC
-                        LIMIT 1
-                    )
-                WHERE ${where.join(' AND ')}
-                ORDER BY dias_sin_movimiento DESC, hstats.ultimo_movimiento_at ASC, r.id ASC
-            `,
-            values
-        );
+        const rows = await fetchNoMovementRows({ thresholdDays, enPlazo, registroScope });
 
         const toIso = (value) => (value instanceof Date ? value.toISOString() : String(value || ''));
-        const registros = rows
-            .map((row) => {
-                const reingreso = Number(row.total_movimientos) > 1;
-                return {
-                    numIngreso: row.num_ingreso,
-                    nombre: row.nombre || '',
-                    rut: row.rut || '',
-                    region: row.region || '',
-                    comuna: row.comuna || '',
-                    sucursal: normalizeText(row.sucursal),
-                    createdAt: toIso(row.created_at),
-                    desdeAt: toIso(row.ultimo_movimiento_at),
-                    motivo: reingreso ? 'REINGRESO SUBSANADA' : 'INGRESO',
-                    totalMovimientos: Number(row.total_movimientos || 0),
-                    diasSinMovimiento: Number(row.dias_sin_movimiento || 0),
-                    valido: !reingreso || isReingresoSubsanadaComment(row.ultimo_comentario)
-                };
-            })
-            .filter((item) => item.valido)
-            .map(({ valido, ...item }) => item);
+        const registros = rows.map((row) => ({
+            numIngreso: row.num_ingreso,
+            nombre: row.nombre || '',
+            rut: row.rut || '',
+            region: row.region || '',
+            comuna: row.comuna || '',
+            sucursal: normalizeText(row.sucursal),
+            createdAt: toIso(row.created_at),
+            desdeAt: toIso(row.ultimo_movimiento_at),
+            motivo: getNoMovementMotivo(row),
+            totalMovimientos: Number(row.total_movimientos || 0),
+            diasSinMovimiento: Number(row.dias_sin_movimiento || 0)
+        }));
 
         return res.json({
             thresholdDays,
@@ -9514,6 +9592,277 @@ app.get('/api/registros/seguimiento-sin-movimiento', async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: 'No fue posible cargar el seguimiento de registros sin movimiento.' });
+    }
+});
+
+// Reportes imprimibles por rango de fechas del evento de cada reporte.
+const REPORTE_TIPOS = Object.freeze(['ingresos', 'certificadas', 'fuera-plazo', 'hallazgos']);
+const REPORTE_MAX_ANIOS = 3;
+
+function canUseReportes(user) {
+    return !isGuestUser(user) && [ROLE_SUPERVISOR, ROLE_SECRETARIA, ROLE_SUPER].includes(normalizeUserRole(user?.role, ROLE_OPERADOR));
+}
+
+// desde/hasta inclusive: los limites van como fecha y hora local de la base (igual que DATE(created_at) en las
+// demas busquedas por rango), con hasta exclusivo al dia siguiente para que las columnas sigan usando sus indices.
+function parseReporteRango(query) {
+    const desde = normalizeText(query.desde);
+    const hasta = normalizeText(query.hasta);
+    if (!desde || !hasta) {
+        return { error: 'Indica las fechas DESDE y HASTA del reporte.' };
+    }
+    if (!isValidIsoDateOnly(desde) || !isValidIsoDateOnly(hasta)) {
+        return { error: 'Rango de fechas invalido. Usa formato YYYY-MM-DD.' };
+    }
+    if (desde > hasta) {
+        return { error: 'La fecha DESDE no puede ser mayor que HASTA.' };
+    }
+    const limite = new Date(`${desde}T00:00:00Z`);
+    limite.setUTCFullYear(limite.getUTCFullYear() + REPORTE_MAX_ANIOS);
+    const hastaDate = new Date(`${hasta}T00:00:00Z`);
+    if (hastaDate >= limite) {
+        return { error: `El rango del reporte no puede superar ${REPORTE_MAX_ANIOS} anios.` };
+    }
+    const siguiente = new Date(hastaDate.getTime() + 86400000).toISOString().slice(0, 10);
+    return { desde, hasta, desdeAt: `${desde} 00:00:00`, hastaAt: `${siguiente} 00:00:00` };
+}
+
+function compareNumIngreso(left, right) {
+    const a = parseNumIngreso(left);
+    const b = parseNumIngreso(right);
+    if (a && b) {
+        return a.anio - b.anio || a.correlativo - b.correlativo;
+    }
+    return String(left || '').localeCompare(String(right || ''), 'es');
+}
+
+function pluralizar(cantidad, singular, plural) {
+    return `${cantidad} ${cantidad === 1 ? singular : plural}`;
+}
+
+app.get('/api/reportes/:tipo', async (req, res) => {
+    try {
+        const tipo = normalizeText(req.params.tipo);
+        if (!REPORTE_TIPOS.includes(tipo)) {
+            return res.status(404).json({ message: 'No existe ese reporte.' });
+        }
+        if (!canUseReportes(req.authUser)) {
+            return res.status(403).json({ message: 'Tu rol no puede consultar reportes.' });
+        }
+
+        const registroScope = getRegistroAccessScope(req.authUser, 'r');
+        if (registroScope.denied) {
+            return res.status(403).json({ message: 'Tu usuario no tiene sucursal asignada para consultar reportes.' });
+        }
+
+        const rango = parseReporteRango(req.query);
+        if (rango.error) {
+            return res.status(400).json({ message: rango.error });
+        }
+        const region = normalizeText(req.query.region);
+        const sucursal = normalizeText(req.query.sucursal);
+        if (exceedsMaxLength(region, 120)) {
+            return res.status(400).json({ message: 'Region excede el largo maximo permitido.' });
+        }
+        if (exceedsMaxLength(sucursal, 120)) {
+            return res.status(400).json({ message: 'Sucursal excede el largo maximo permitido.' });
+        }
+
+        // Filtros comunes: alcance del usuario, region y sede de ingreso (Casa Matriz o la sucursal que creo la carpeta).
+        const filtroWhere = [];
+        const filtroValues = [];
+        if (registroScope.clause) {
+            filtroWhere.push(registroScope.clause);
+            filtroValues.push(...registroScope.params);
+        }
+        if (region) {
+            filtroWhere.push('r.region = ?');
+            filtroValues.push(region);
+        }
+        if (sucursal) {
+            filtroWhere.push('r.created_by_sucursal = ?');
+            filtroValues.push(sucursal);
+        }
+        const filtroSql = filtroWhere.map((clause) => ` AND ${clause}`).join('');
+        // Fecha de ingreso: primer movimiento del historial, como FECHA INGRESO en sin movimiento.
+        const primerMovimientoJoin = `
+            LEFT JOIN (
+                SELECT registro_id, MIN(created_at) AS primer_movimiento_at
+                FROM registro_historial
+                GROUP BY registro_id
+            ) hstats
+                ON hstats.registro_id = r.id`;
+
+        const toIso = (value) => (value instanceof Date ? value.toISOString() : String(value || ''));
+        const catalogo = await fetchFolderStatusCatalog();
+        const etiquetaDeEstado = new Map(catalogo.options.map((option) => [option.value, option.label]));
+        const etiquetaEstado = (value) => {
+            const normalized = normalizeFolderStatusValue(value);
+            return etiquetaDeEstado.get(normalized) || (normalized ? formatFolderStatusValue(normalized) : 'Sin estado');
+        };
+        const toReporteRow = (row, fechaEvento, detalle) => ({
+            numIngreso: row.num_ingreso || '',
+            fechaIngreso: toIso(row.fecha_ingreso),
+            fechaEvento: toIso(fechaEvento),
+            nombre: row.nombre || '',
+            rut: row.rut || '',
+            region: row.region || '',
+            comuna: row.comuna || '',
+            sucursal: normalizeText(row.sucursal),
+            numLotes: row.num_lotes ?? '',
+            estadoCarpeta: etiquetaEstado(row.estado_carpeta),
+            detalle
+        });
+        const diasEntre = (inicio, fin) => Math.max(0, Math.floor((new Date(fin) - new Date(inicio)) / 86400000));
+
+        let registros = [];
+        let resumenFijo = null;
+        let resumenPor = (item) => item.region || 'Sin región';
+
+        if (tipo === 'ingresos') {
+            const [rows] = await pool.execute(
+                `
+                    SELECT
+                        r.num_ingreso, r.nombre, r.rut, r.region, r.comuna, r.num_lotes, r.estado_carpeta,
+                        r.created_by_sucursal AS sucursal,
+                        COALESCE(hstats.primer_movimiento_at, r.created_at) AS fecha_ingreso
+                    FROM registros r
+                    ${primerMovimientoJoin}
+                    WHERE COALESCE(hstats.primer_movimiento_at, r.created_at) >= ?
+                      AND COALESCE(hstats.primer_movimiento_at, r.created_at) < ?${filtroSql}
+                `,
+                [rango.desdeAt, rango.hastaAt, ...filtroValues]
+            );
+            registros = rows.map((row) => toReporteRow(row, row.fecha_ingreso, ''));
+            resumenPor = (item) => item.estadoCarpeta;
+        } else if (tipo === 'certificadas') {
+            // Fecha de certificacion: ultimo MODIFICACION cuyo detalle registra el cambio de estado de carpeta
+            // a certificada (buildAutomaticModificationComment), al final del texto o seguido de otro cambio.
+            // Un comentario resumido (mas de HISTORY_DETAIL_MAX_CHANGES cambios) no dice el estado: si hay uno
+            // posterior a esa certificacion pudo ser una recertificacion, y se usa el respaldo de la fecha de ingreso.
+            const certificada = normalizeFolderStatusValue('certificada');
+            const cambioACertificada = `%modificacion de estado de carpeta: % -> ${formatFolderStatusValue(certificada)}`;
+            const modificacionResumida = 'modificacion resumida (%';
+            const [rows] = await pool.execute(
+                `
+                    SELECT
+                        r.num_ingreso, r.nombre, r.rut, r.region, r.comuna, r.num_lotes, r.estado_carpeta,
+                        r.created_by_sucursal AS sucursal,
+                        COALESCE(hstats.primer_movimiento_at, r.created_at) AS fecha_ingreso,
+                        cert.certificada_at
+                    FROM registros r
+                    ${primerMovimientoJoin}
+                    LEFT JOIN (
+                        SELECT
+                            h.registro_id,
+                            CASE
+                                WHEN MAX(CASE WHEN h.comentario LIKE ? THEN h.created_at END)
+                                    > MAX(CASE WHEN h.comentario LIKE ? OR h.comentario LIKE ? THEN h.created_at END)
+                                    THEN NULL
+                                ELSE MAX(CASE WHEN h.comentario LIKE ? OR h.comentario LIKE ? THEN h.created_at END)
+                            END AS certificada_at
+                        FROM registro_historial h
+                        INNER JOIN registros rc
+                            ON rc.id = h.registro_id
+                        WHERE rc.estado_carpeta = ?
+                          AND h.accion = 'MODIFICACION'
+                          AND (h.comentario LIKE ? OR h.comentario LIKE ? OR h.comentario LIKE ?)
+                        GROUP BY h.registro_id
+                    ) cert
+                        ON cert.registro_id = r.id
+                    WHERE r.estado_carpeta = ?
+                      AND COALESCE(cert.certificada_at, hstats.primer_movimiento_at, r.created_at) >= ?
+                      AND COALESCE(cert.certificada_at, hstats.primer_movimiento_at, r.created_at) < ?${filtroSql}
+                `,
+                [
+                    modificacionResumida,
+                    cambioACertificada, `${cambioACertificada} |%`,
+                    cambioACertificada, `${cambioACertificada} |%`,
+                    certificada,
+                    cambioACertificada, `${cambioACertificada} |%`, modificacionResumida,
+                    certificada, rango.desdeAt, rango.hastaAt, ...filtroValues
+                ]
+            );
+            registros = rows.map((row) =>
+                row.certificada_at
+                    ? toReporteRow(row, row.certificada_at, pluralizar(diasEntre(row.fecha_ingreso, row.certificada_at), 'día', 'días'))
+                    : toReporteRow(row, row.fecha_ingreso, 'Sin fecha de certificación registrada; se usa la fecha de ingreso')
+            );
+        } else if (tipo === 'fuera-plazo') {
+            const thresholdDays = Math.max(1, Math.min(SECRETARIA_NO_MOVIMIENTO_DAYS, 365));
+            const rows = await fetchNoMovementRows({
+                thresholdDays,
+                // El alcance del usuario ya va dentro de filtroWhere.
+                registroScope: { clause: '', params: [] },
+                extraWhere: ['hstats.ultimo_movimiento_at >= ?', 'hstats.ultimo_movimiento_at < ?', ...filtroWhere],
+                extraValues: [rango.desdeAt, rango.hastaAt, ...filtroValues]
+            });
+            registros = rows.map((row) => ({
+                ...toReporteRow({ ...row, sucursal: row.sede_ingreso, fecha_ingreso: row.created_at },row.ultimo_movimiento_at, pluralizar(Number(row.dias_sin_movimiento || 0), 'día sin revisión', 'días sin revisión')),
+                motivo: getNoMovementMotivo(row)
+            }));
+            resumenFijo = ['INGRESO', 'REINGRESO SUBSANADA'];
+            resumenPor = (item) => item.motivo;
+        } else {
+            // Una fila por carpeta con hallazgos en el rango (idx_historial_indicador_fecha).
+            const [rows] = await pool.execute(
+                `
+                    SELECT
+                        r.num_ingreso, r.nombre, r.rut, r.region, r.comuna, r.num_lotes, r.estado_carpeta,
+                        r.created_by_sucursal AS sucursal,
+                        COALESCE(hstats.primer_movimiento_at, r.created_at) AS fecha_ingreso,
+                        hz.ultimo_hallazgo_at,
+                        hz.total_hallazgos
+                    FROM (
+                        SELECT registro_id, COUNT(*) AS total_hallazgos, MAX(created_at) AS ultimo_hallazgo_at
+                        FROM registro_historial
+                        WHERE indicador = 'notificacion_hallazgos'
+                          AND created_at >= ?
+                          AND created_at < ?
+                        GROUP BY registro_id
+                    ) hz
+                    INNER JOIN registros r
+                        ON r.id = hz.registro_id
+                    ${primerMovimientoJoin}
+                    WHERE 1 = 1${filtroSql}
+                `,
+                [rango.desdeAt, rango.hastaAt, ...filtroValues]
+            );
+            registros = rows.map((row) =>
+                toReporteRow(row, row.ultimo_hallazgo_at, pluralizar(Number(row.total_hallazgos || 0), 'notificación', 'notificaciones'))
+            );
+        }
+
+        registros.sort(
+            (left, right) =>
+                left.region.localeCompare(right.region, 'es') ||
+                left.sucursal.localeCompare(right.sucursal, 'es') ||
+                left.fechaEvento.localeCompare(right.fechaEvento) ||
+                compareNumIngreso(left.numIngreso, right.numIngreso)
+        );
+
+        const conteo = new Map((resumenFijo || []).map((etiqueta) => [etiqueta, 0]));
+        registros.forEach((item) => {
+            const etiqueta = resumenPor(item);
+            conteo.set(etiqueta, (conteo.get(etiqueta) || 0) + 1);
+        });
+        const resumen = [...conteo].map(([etiqueta, cantidad]) => ({ etiqueta, cantidad }));
+        if (!resumenFijo) {
+            resumen.sort((left, right) => right.cantidad - left.cantidad || left.etiqueta.localeCompare(right.etiqueta, 'es'));
+        }
+
+        return res.json({
+            tipo,
+            desde: rango.desde,
+            hasta: rango.hasta,
+            filtros: { region, sucursal },
+            total: registros.length,
+            resumen,
+            registros: registros.map(({ motivo, ...item }) => item)
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'No fue posible generar el reporte.' });
     }
 });
 

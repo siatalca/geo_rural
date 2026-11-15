@@ -1,6 +1,7 @@
 // Paneles por rol: selector de rol (usuarios con 2 roles), panel del Contador, dashboard del Supervisor
 // y la columna Factura (subir / descargar / imprimir PDF) del panel FACTURAS SOLICITADAS.
-// Usa funciones globales de script.js: apiRequest, getApiKey, escapeHtml, normalizeUserRole, currentUser, ui, API_BASE.
+// Usa funciones globales de script.js: apiRequest, getApiKey, escapeHtml, normalizeUserRole, currentUser, ui, API_BASE,
+// populateRegiones y setFormMessage. La pestaña ESTADÍSTICAS DE CARPETAS usa SiaReportes, SiaEstadisticas y SiaReportesUi.
 (function () {
     const $ = (id) => document.getElementById(id);
     const ROLE_LABELS = { SUPER: 'Super', ADMIN: 'Administrador', SECRETARIA: 'Secretaria', OPERADOR: 'Operador', SUPERVISOR: 'Supervisor', CONTADOR: 'Contador' };
@@ -112,12 +113,13 @@
 
     // ---------- Vistas por rol ----------
     function hidePanels() {
-        ['contadorPanel', 'supervisorDashboard', 'supervisorTabs'].forEach((id) => show(id, false));
+        ['contadorPanel', 'supervisorDashboard', 'supervisorEstadisticas', 'supervisorTabs'].forEach((id) => show(id, false));
     }
 
     function apply(user) {
         renderRoleSwitch(user);
         hidePanels();
+        resetEstadisticas();
         const role = normalizeUserRole(user?.role);
         if (role === 'CONTADOR') {
             ui.registroForm.classList.add('hidden');
@@ -131,6 +133,7 @@
 
     function reset() {
         hidePanels();
+        resetEstadisticas();
         show('roleSwitchWrap', false);
         show('superViewAsNotice', false);
         closeUpload();
@@ -140,10 +143,13 @@
     function showSupervisorTab(tab) {
         document.querySelectorAll('[data-supervisor-tab]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.supervisorTab === tab)));
         const resumen = tab === 'resumen';
+        const estadisticas = tab === 'estadisticas';
         show('supervisorDashboard', resumen);
-        ui.registroForm.classList.toggle('hidden', resumen);
+        show('supervisorEstadisticas', estadisticas);
+        ui.registroForm.classList.toggle('hidden', resumen || estadisticas);
         hideTip();
         if (resumen) void loadSupervisor();
+        if (estadisticas) openEstadisticas();
     }
 
     // ---------- Panel del Contador ----------
@@ -348,10 +354,28 @@
     // ---------- Dashboard del Supervisor ----------
     const NS = 'http://www.w3.org/2000/svg';
     const tip = () => $('vizTooltip');
+    // content: HTML ya escapado, o líneas [texto, claseMuestra?] que se insertan con textContent (la primera, en negrita).
+    function fillTip(box, content) {
+        if (typeof content === 'string') {
+            box.innerHTML = content;
+            return;
+        }
+        box.replaceChildren(...content.map(([text, swatch], i) => {
+            const line = document.createElement(i === 0 ? 'strong' : 'div');
+            if (swatch) {
+                const sw = document.createElement('span');
+                sw.className = `sw ${swatch}`;
+                line.appendChild(sw);
+            }
+            line.appendChild(document.createTextNode(text));
+            if (i === 0) line.style.display = 'block';
+            return line;
+        }));
+    }
     function showTip(event, html) {
         const box = tip();
         if (!box) return;
-        box.innerHTML = html;
+        fillTip(box, html);
         box.hidden = false;
         const rect = box.getBoundingClientRect();
         let x = event.clientX + 14;
@@ -554,6 +578,171 @@
             : '<tr><td colspan="6">Todas las carpetas activas tienen movimiento reciente.</td></tr>';
     }
 
+    // ---------- Estadísticas de carpetas (pestaña del supervisor) ----------
+    // Mismos datos y reglas que el menú REPORTES (GET /api/reportes/:tipo); agrupación en estadisticas-carpetas.js.
+    const STATS_TIPOS = ['ingresos', 'certificadas', 'fuera-plazo', 'hallazgos'];
+    const stats = { opened: false, requestId: 0, shown: false, charts: null };
+    // El SVG se dibuja al ancho real del recuadro (y se redibuja al cambiar el tamaño de la ventana)
+    // para que el texto quede en 11-12 px en celular y en escritorio.
+    const chartWidth = (container) => Math.round(Math.min(1400, Math.max(240, container.clientWidth || 760)));
+
+    function groupedColumns(container, { rows, granularity }) {
+        if (!rows.some((r) => r.ingresos + r.certificadas > 0)) return emptyChart(container, 'Sin carpetas ingresadas ni certificadas en el rango.');
+        const W = chartWidth(container), H = 230, L = 34, R = 8, T = 16, B = 30;
+        const svg = svgFor(container, W, H, `Carpetas ingresadas y certificadas por ${granularity}`);
+        const max = Math.max(4, niceMax(Math.max(...rows.map((r) => Math.max(r.ingresos, r.certificadas)))));
+        const y = (v) => T + (H - T - B) * (1 - v / max);
+        for (let i = 0; i <= 4; i += 1) {
+            const v = (max / 4) * i;
+            el('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: i === 0 ? 'viz-axis' : 'viz-gridline' }, svg);
+            el('text', { x: L - 6, y: y(v) + 4, class: 'viz-tick', 'text-anchor': 'end' }, svg).textContent = String(v);
+        }
+        const band = (W - L - R) / rows.length;
+        const bw = Math.max(2, Math.min(14, band * 0.36));
+        const step = window.SiaEstadisticas.labelStep(rows.length, W - L - R);
+        rows.forEach((r, i) => {
+            const mid = L + band * i + band / 2;
+            el('path', { d: barPath(mid - bw - 1, y(r.ingresos), bw, y(0) - y(r.ingresos), false), class: 'viz-s1' }, svg);
+            el('path', { d: barPath(mid + 1, y(r.certificadas), bw, y(0) - y(r.certificadas), false), class: 'viz-s2' }, svg);
+            if (i % step === 0) el('text', { x: mid, y: H - 10, class: 'viz-tick', 'text-anchor': 'middle' }, svg).textContent = r.label;
+            const hit = el('rect', { x: L + band * i, y: T, width: band, height: H - T - B, class: 'viz-hit' }, svg);
+            hit.setAttribute('aria-label', `${r.title}: ${r.ingresos} ingresadas, ${r.certificadas} certificadas`);
+            bindHover(hit, [[r.title], [`Ingresadas: ${r.ingresos}`, 'viz-s1'], [`Certificadas: ${r.certificadas}`, 'viz-s2']]);
+        });
+    }
+
+    function groupedHbars(container, rows) {
+        if (!rows.length) return emptyChart(container, 'Sin carpetas fuera de plazo ni con hallazgos en el rango.');
+        const W = chartWidth(container), rowH = 40, T = 6, R = 34;
+        const L = Math.round(Math.min(170, W * 0.45));
+        const H = T * 2 + rows.length * rowH;
+        const svg = svgFor(container, W, H, 'Carpetas fuera de plazo y con hallazgos por sede');
+        const max = Math.max(...rows.map((r) => Math.max(r.fueraPlazo, r.hallazgos)), 1);
+        const maxChars = Math.max(8, Math.floor((L - 8) / 6.5));
+        rows.forEach((r, i) => {
+            const yTop = T + i * rowH;
+            const label = el('text', { x: L - 8, y: yTop + rowH / 2 + 4, class: 'viz-label', 'text-anchor': 'end' }, svg);
+            label.textContent = r.label.length > maxChars ? `${r.label.slice(0, maxChars - 1)}…` : r.label;
+            [['fueraPlazo', 'viz-s1', 7], ['hallazgos', 'viz-s2', 21]].forEach(([key, cls, offset]) => {
+                const w = ((W - L - R) * r[key]) / max;
+                if (r[key] > 0) el('path', { d: barPath(L, yTop + offset, w, 12, true), class: cls }, svg);
+                el('text', { x: L + w + 5, y: yTop + offset + 10, class: 'viz-value' }, svg).textContent = String(r[key]);
+            });
+            const hit = el('rect', { x: 0, y: yTop, width: W, height: rowH, class: 'viz-hit' }, svg);
+            hit.setAttribute('aria-label', `${r.label}: ${r.fueraPlazo} fuera de plazo, ${r.hallazgos} con hallazgos`);
+            bindHover(hit, [[r.label], [`Fuera de plazo: ${r.fueraPlazo}`, 'viz-s1'], [`Con hallazgos: ${r.hallazgos}`, 'viz-s2']]);
+        });
+        el('line', { x1: L, x2: L, y1: T, y2: H - T, class: 'viz-axis' }, svg);
+    }
+
+    function setStatsShown(visible) {
+        stats.shown = visible;
+        show('estadisticasResultado', visible);
+        if (!visible) {
+            stats.charts = null;
+            hideTip();
+        }
+    }
+
+    // Dibuja (o redibuja al ancho actual) los dos gráficos de la última carga, si la pestaña está a la vista.
+    function drawStatsCharts() {
+        const container = $('estadisticasChartPeriodo');
+        if (!stats.shown || !stats.charts || !container || !container.clientWidth) return;
+        groupedColumns(container, stats.charts.periodos);
+        groupedHbars($('estadisticasChartSedes'), stats.charts.sedes);
+    }
+
+    function resetEstadisticas() {
+        stats.opened = false;
+        stats.requestId += 1;
+        setStatsShown(false);
+        const button = $('estadisticasActualizarBtn');
+        if (button) button.disabled = false;
+        setFormMessage($('estadisticasMessage'), '', '');
+    }
+
+    // Primera apertura de la pestaña (por sesión): filtros por defecto y carga. Después solo con ACTUALIZAR.
+    function openEstadisticas() {
+        if (stats.opened) {
+            drawStatsCharts();
+            return;
+        }
+        if (!window.SiaReportes || !window.SiaEstadisticas) return;
+        stats.opened = true;
+        const range = window.SiaReportes.defaultRange();
+        $('estadisticasDesde').value = range.desde;
+        $('estadisticasHasta').value = range.hasta;
+        populateRegiones($('estadisticasRegion'), 'TODAS');
+        $('estadisticasRegion').value = '';
+        $('estadisticasSucursal').value = '';
+        void window.SiaReportesUi?.loadBranches($('estadisticasSucursal'));
+        void loadEstadisticas();
+    }
+
+    async function loadEstadisticas() {
+        const message = $('estadisticasMessage');
+        const desde = String($('estadisticasDesde').value || '').trim();
+        const hasta = String($('estadisticasHasta').value || '').trim();
+        if (!desde || !hasta) {
+            stats.requestId += 1;
+            setStatsShown(false);
+            setFormMessage(message, 'Indica las fechas DESDE y HASTA (día, mes y año completos).', 'error');
+            (!desde ? $('estadisticasDesde') : $('estadisticasHasta')).focus();
+            return;
+        }
+        const query = new URLSearchParams({
+            desde,
+            hasta,
+            region: String($('estadisticasRegion').value || '').trim(),
+            sucursal: String($('estadisticasSucursal').value || '').trim()
+        });
+        const requestId = ++stats.requestId;
+        const button = $('estadisticasActualizarBtn');
+        button.disabled = true;
+        setFormMessage(message, 'Cargando estadísticas...', '');
+        try {
+            const payloads = await Promise.all(STATS_TIPOS.map((tipo) => apiRequest(`/reportes/${tipo}?${query.toString()}`)));
+            if (requestId !== stats.requestId) return;
+            const checked = STATS_TIPOS.map((tipo, i) => ({ tipo, ...window.SiaReportes.validateResponse(payloads[i], tipo) }));
+            const bad = checked.find((c) => !c.ok);
+            if (bad) {
+                setStatsShown(false);
+                setFormMessage(message, `${window.SiaReportes.getReport(bad.tipo).title}: ${bad.error}`, 'error');
+                return;
+            }
+            const [ingresos, certificadas, fueraPlazo, hallazgos] = checked.map((c) => c.data);
+            setStatsShown(true);
+            renderEstadisticas({ ingresos, certificadas, fueraPlazo, hallazgos });
+            setFormMessage(message, '', '');
+        } catch (error) {
+            if (requestId !== stats.requestId) return;
+            setStatsShown(false);
+            setFormMessage(message, error?.message || 'No fue posible cargar las estadísticas.', 'error');
+        } finally {
+            if (requestId === stats.requestId) button.disabled = false;
+        }
+    }
+
+    function renderEstadisticas({ ingresos, certificadas, fueraPlazo, hallazgos }) {
+        const E = window.SiaEstadisticas;
+        $('estadisticasKpis').innerHTML = kpiCards([
+            ['Ingresadas', ingresos.total.toLocaleString('es-CL'), 'carpetas ingresadas en el rango', false],
+            ['Certificadas', certificadas.total.toLocaleString('es-CL'), 'pasaron a Certificada en el rango', false],
+            ['Fuera de plazo', fueraPlazo.total.toLocaleString('es-CL'), '15 días o más sin revisión', fueraPlazo.total > 0],
+            ['Con hallazgos', hallazgos.total.toLocaleString('es-CL'), 'con notificación en el rango', hallazgos.total > 0]
+        ]);
+        const periodos = E.groupByPeriod(ingresos.desde, ingresos.hasta, { ingresos: ingresos.registros, certificadas: certificadas.registros });
+        $('estadisticasNotaPeriodo').textContent = periodos.granularity === 'trimestre'
+            ? 'Por trimestre (el rango supera 24 meses), según la fecha de ingreso y la de certificación'
+            : 'Por mes, según la fecha de ingreso y la de certificación';
+        $('estadisticasResumenPeriodo').textContent = E.describePeriods(periodos);
+        const sedes = E.groupBySede({ fueraPlazo: fueraPlazo.registros, hallazgos: hallazgos.registros });
+        $('estadisticasResumenSedes').textContent = E.describeSedes(sedes);
+        stats.charts = { periodos, sedes };
+        groupedColumns($('estadisticasChartPeriodo'), periodos);
+        groupedHbars($('estadisticasChartSedes'), sedes);
+    }
+
     // ---------- Eventos ----------
     document.addEventListener('click', (event) => {
         const button = event.target.closest('[data-factura-accion]');
@@ -578,10 +767,28 @@
         $('contadorRefresh')?.addEventListener('click', () => void loadContador());
         $('supervisorPeriodo')?.addEventListener('change', () => void loadSupervisor());
         $('supervisorSucursal')?.addEventListener('change', () => void loadSupervisor());
+        $('estadisticasFilterForm')?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            void loadEstadisticas();
+        });
+        // Al cambiar un filtro, lo que se ve ya no corresponde: se descarta la carga en curso y se pide ACTUALIZAR.
+        $('estadisticasFilterForm')?.addEventListener('change', () => {
+            const button = $('estadisticasActualizarBtn');
+            const hadResultOrLoad = stats.shown || button.disabled;
+            stats.requestId += 1;
+            setStatsShown(false);
+            button.disabled = false;
+            if (hadResultOrLoad) setFormMessage($('estadisticasMessage'), 'Cambiaste los filtros: presiona ACTUALIZAR para ver las estadísticas.', '');
+        });
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && editing) closeUpload();
         });
         window.addEventListener('scroll', hideTip, true);
+        let resizeTimer = 0;
+        window.addEventListener('resize', () => {
+            window.clearTimeout(resizeTimer);
+            resizeTimer = window.setTimeout(drawStatsCharts, 150);
+        });
     });
 
     window.SiaRolePanels = { apply, reset, facturaCell };
